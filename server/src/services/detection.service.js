@@ -6,7 +6,7 @@ const logger = require("../utils/logger");
 const threshold = Number(process.env.ACCIDENT_FORCE_THRESHOLD) || 30;
 const confirmationWindowMs =
   Number(process.env.ACCIDENT_CONFIRMATION_WINDOW_MS) || 3000;
-const cooldownPeriodMs = Number(process.env.COOLDOWN_PERIOD_MS) || 30_000;
+const cooldownPeriodMs = Number(process.env.COOLDOWN_PERIOD_MS) || 45_000;
 
 // ── State ───────────────────────────────────────────────────────
 let lastOverThresholdAt = null;
@@ -63,6 +63,8 @@ async function processSensorReading(payload) {
   const nowMs = Number.isNaN(eventTime) ? Date.now() : eventTime;
   const deviceId = payload.device_id || "default";
 
+  logger.info("Calculated acceleration force", { deviceId, force, overThreshold });
+
   // 1. Below threshold — reset confirmation window
   if (!overThreshold) {
     lastOverThresholdAt = null;
@@ -92,9 +94,11 @@ async function processSensorReading(payload) {
   const incident = await createIncident({
     type: "ACCIDENT",
     severity,
-    force,
+    acceleration: force,
     latitude: payload.location.lat,
     longitude: payload.location.lng,
+    deviceId: deviceId !== "default" ? deviceId : null,
+    status: "NEW",
   });
 
   logger.info("Emergency incident detected", {
@@ -109,11 +113,13 @@ async function processSensorReading(payload) {
     id: incident.id,
     type: incident.type,
     severity: incident.severity,
-    force: incident.force,
+    force: incident.acceleration,
     location: {
       lat: incident.latitude,
       lng: incident.longitude,
     },
+    deviceId: incident.deviceId,
+    status: incident.status,
     createdAt: incident.createdAt,
   });
 

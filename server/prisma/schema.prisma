@@ -14,11 +14,14 @@ datasource db {
 }
 
 model Incident {
-  id        String   @id @default(cuid())
-  type      String
-  severity  String
-  force     Float
-  latitude  Float
-  longitude Float
-  createdAt DateTime @default(now())
+  id           String   @id @default(cuid())
+  type         String
+  severity     String
+  acceleration Float
+  latitude     Float
+  longitude    Float
+  deviceId     String?
+  status       String   @default("NEW")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }

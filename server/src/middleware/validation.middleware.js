@@ -28,11 +28,10 @@ const sensorDataSchema = z.object({
       .max(180, "longitude must be <= 180"),
   }),
 
-  timestamp: z
-    .union([z.string(), z.number()], { required_error: "timestamp is required" })
-    .refine((val) => !Number.isNaN(new Date(val).getTime()), {
-      message: "timestamp must be a valid ISO-8601 date string or Unix epoch",
-    }),
+  timestamp: z.number({
+    required_error: "timestamp is required",
+    invalid_type_error: "timestamp must be a valid number",
+  }),
 
   device_id: z.string().optional(),
 });

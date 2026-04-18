@@ -1,7 +1,9 @@
 const { processSensorReading } = require("../services/detection.service");
+const logger = require("../utils/logger");
 
 async function ingestSensorData(req, res, next) {
   try {
+    logger.info("Incoming sensor data payload", { payload: req.validatedBody });
     // req.validatedBody is set by the Zod validation middleware
     const result = await processSensorReading(req.validatedBody);
 

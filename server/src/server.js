@@ -10,8 +10,17 @@ const { disconnectPrisma } = require("./services/incident.service");
 const port = Number(process.env.PORT) || 4000;
 const server = http.createServer(app);
 
+const rawOrigins = process.env.CORS_ORIGIN || "http://localhost:3000";
+const allowedOrigins = rawOrigins.split(",").map((o) => o.trim());
+
 initializeSocket(server, {
-  corsOrigin: process.env.CORS_ORIGIN || "http://localhost:3000",
+  corsOrigin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes("*") || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error(`Origin ${origin} is not allowed by CORS`));
+  },
 });
 
 server.listen(port, () => {
