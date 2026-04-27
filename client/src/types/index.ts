@@ -13,6 +13,9 @@ export interface LocationData {
   accuracy: number;
 }
 
+export type AlertSeverity = 'high' | 'medium' | 'low';
+export type AlertStatus = 'pending' | 'acknowledged' | 'dispatched' | 'cancelled';
+
 export interface EmergencyEvent {
   id: string;
   type: 'accident' | 'manual_sos';
@@ -24,8 +27,28 @@ export interface EmergencyEvent {
 export interface Alert {
   id: string;
   message: string;
-  severity: 'high' | 'medium' | 'low';
+  severity: AlertSeverity;
   location: LocationData;
   timestamp: number;
-  acknowledged: boolean;
+  status: AlertStatus;
+  source: 'manual' | 'auto' | 'remote';
+}
+
+export interface AlertPayload {
+  message?: string;
+  severity?: AlertSeverity;
+  location?: LocationData;
+  source?: Alert['source'];
+}
+
+export interface EmergencyPayload {
+  type: EmergencyEvent['type'];
+  message: string;
+  severity: AlertSeverity;
+  location: LocationData;
+  timestamp: number;
+}
+
+export interface MotionPermissionRequester {
+  requestPermission?: () => Promise<'granted' | 'denied'>;
 }

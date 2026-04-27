@@ -1,16 +1,31 @@
 import React from 'react';
-import { useAccelerometer } from '../../hooks/useAccelerometer';
-import { useGeolocation } from '../../hooks/useGeolocation';
+import type { LocationData, SensorData } from '../../types';
 
-export const SensorMonitor: React.FC = () => {
-  const { sensorData, permissionGranted, error: motionError, isListening } = useAccelerometer();
-  const { location, error: locationError, watching, permissionDenied } = useGeolocation();
+interface SensorMonitorProps {
+  sensorData: SensorData | null;
+  motionActive: boolean;
+  motionError: string | null;
+  location: LocationData | null;
+  locationWatching: boolean;
+  locationError: string | null;
+  permissionDenied: boolean;
+}
+
+export const SensorMonitor: React.FC<SensorMonitorProps> = ({
+  sensorData,
+  motionActive,
+  motionError,
+  location,
+  locationWatching,
+  locationError,
+  permissionDenied,
+}) => {
 
   return (
     <div className="p-4 m-4 bg-gray-50 dark:bg-gray-800 rounded-xl shadow-lg">
       <h3 className="text-lg font-bold mb-4 text-gray-800 dark:text-white flex items-center gap-2">
         <span>📡</span> Sensor Status
-        {isListening && watching && (
+        {motionActive && locationWatching && (
           <span className="text-xs bg-green-500 text-white px-2 py-1 rounded-full animate-pulse">
             Monitoring Active
           </span>
@@ -25,11 +40,11 @@ export const SensorMonitor: React.FC = () => {
             <span className="font-semibold text-gray-700 dark:text-gray-300">Accelerometer</span>
           </div>
           <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-            permissionGranted 
+            motionActive
               ? 'bg-green-500 text-white' 
               : 'bg-red-500 text-white'
           }`}>
-            {permissionGranted ? 'Active' : 'Inactive'}
+            {motionActive ? 'Active' : 'Inactive'}
           </span>
         </div>
         
@@ -56,7 +71,7 @@ export const SensorMonitor: React.FC = () => {
           </div>
         ) : (
           <div className="text-center py-4 text-gray-400">
-            {permissionGranted ? 'Waiting for sensor data...' : 'Grant permission to access motion sensor'}
+            {motionActive ? 'Waiting for sensor data...' : 'Grant permission to access motion sensor'}
           </div>
         )}
         
@@ -75,9 +90,9 @@ export const SensorMonitor: React.FC = () => {
             <span className="font-semibold text-gray-700 dark:text-gray-300">GPS Location</span>
           </div>
           <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-            watching ? 'bg-green-500 text-white' : 'bg-yellow-500 text-white'
+            locationWatching ? 'bg-green-500 text-white' : 'bg-yellow-500 text-white'
           }`}>
-            {watching ? 'Locked' : 'Searching...'}
+            {locationWatching ? 'Locked' : 'Searching...'}
           </span>
         </div>
         

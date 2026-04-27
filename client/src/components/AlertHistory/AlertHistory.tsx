@@ -55,7 +55,7 @@ export const AlertHistory = ({ alerts, onAcknowledge }: AlertHistoryProps) => {
               </div>
             )}
             
-            {!alert.acknowledged && onAcknowledge && (
+            {alert.status === 'pending' && onAcknowledge && (
               <button
                 onClick={() => onAcknowledge(alert.id)}
                 className="text-xs bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded transition"
@@ -64,8 +64,8 @@ export const AlertHistory = ({ alerts, onAcknowledge }: AlertHistoryProps) => {
               </button>
             )}
             
-            {alert.acknowledged && (
-              <span className="text-xs text-green-600 dark:text-green-400">✓ Acknowledged</span>
+            {alert.status !== 'pending' && (
+              <span className="text-xs text-green-600 dark:text-green-400">Status: {alert.status}</span>
             )}
           </div>
         ))}

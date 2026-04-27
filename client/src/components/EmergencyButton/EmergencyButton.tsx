@@ -10,7 +10,7 @@ export const EmergencyButton: React.FC<EmergencyButtonProps> = ({ onSOS, disable
   const [countdown, setCountdown] = useState(5);
 
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let interval: ReturnType<typeof setInterval> | undefined;
     
     if (confirming && countdown > 0) {
       interval = setInterval(() => {
