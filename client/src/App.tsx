@@ -1,34 +1,72 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { SensorMonitor } from './components/SensorMonitor/SensorMonitor';
 import { EmergencyButton } from './components/EmergencyButton/EmergencyButton';
 import { LocationMap } from './components/LocationMap/LocationMap';
 import { AlertHistory } from './components/AlertHistory/AlertHistory';
+import { PermissionsGate } from './components/PermissionsGate/PermissionsGate';
+import { Toast } from './components/Toast/Toast';
+import { ResponderDashboard } from './components/ResponderDashboard/ResponderDashboard';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useGeolocation } from './hooks/useGeolocation';
-import type { Alert } from './types';
+import { useAccelerometer } from './hooks/useAccelerometer';
+import { MockTransport } from './services/transport/mockTransport';
+import type { Alert, AlertPayload, AlertStatus, EmergencyPayload, LocationData, SensorData } from './types';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
+const makeId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+const now = () => Date.now();
 
 function App() {
+  const [view, setView] = useState<'user' | 'responder'>('user');
   const [isMonitoring, setIsMonitoring] = useState(false);
-  const [alerts, setAlerts] = useState<Alert[]>([]);
-  const { location } = useGeolocation();
-  
+  const [demoMode, setDemoMode] = useState(true);
+  const [alerts, setAlerts] = useState<Alert[]>(() => {
+    const saved = localStorage.getItem('sers-alert-history');
+    if (!saved) return [];
+    try {
+      return JSON.parse(saved) as Alert[];
+    } catch {
+      return [];
+    }
+  });
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [mockLocation, setMockLocation] = useState<LocationData | null>(null);
+  const [mockSensorData, setMockSensorData] = useState<SensorData | null>(null);
+  const mockTransport = useRef<MockTransport>(new MockTransport());
+
+  const geolocation = useGeolocation({ enabled: isMonitoring && !demoMode, mockLocation: demoMode ? mockLocation : null });
+  const accelerometer = useAccelerometer({ enabled: isMonitoring && !demoMode, mockData: demoMode ? mockSensorData : null });
+
+  const location = geolocation.location;
+  const sensorData = accelerometer.sensorData;
+
+  const addAlert = (payload: AlertPayload, fallbackMessage: string) => {
+    const alert: Alert = {
+      id: makeId(),
+      message: payload.message || fallbackMessage,
+      severity: payload.severity || 'high',
+      location: payload.location || location || { latitude: 0, longitude: 0, accuracy: 0 },
+      timestamp: now(),
+      status: 'pending',
+      source: payload.source || 'remote',
+    };
+    setAlerts((prev) => [alert, ...prev]);
+  };
+
+  useEffect(() => {
+    localStorage.setItem('sers-alert-history', JSON.stringify(alerts.slice(0, 100)));
+  }, [alerts]);
+
   const { isConnected, connectionError, sendMessage } = useWebSocket({
-    url: 'http://localhost:5000',
+    url: API_URL,
     autoConnect: true,
+    enabled: !demoMode,
     onAlert: (data) => {
-      const newAlert: Alert = {
-        id: Date.now().toString(),
-        message: data.message || 'Emergency detected!',
-        severity: data.severity || 'high',
-        location: data.location || location,
-        timestamp: Date.now(),
-        acknowledged: false,
-      };
-      setAlerts(prev => [newAlert, ...prev]);
-      
+      addAlert(data, 'Emergency detected!');
       if ('Notification' in window && Notification.permission === 'granted') {
         new Notification('🚨 EMERGENCY ALERT!', {
-          body: newAlert.message,
+          body: data.message || 'Emergency detected!',
           icon: '/emergency-icon.png',
         });
       }
@@ -41,48 +79,90 @@ function App() {
     }
   }, []);
 
-  const handleStartMonitoring = () => {
+  useEffect(() => {
+    if (!demoMode) return;
+    mockTransport.current.connect();
+    const tick = window.setInterval(() => {
+      const nextLocation = mockTransport.current.nextLocation();
+      setMockLocation(nextLocation);
+      setMockSensorData({
+        acceleration: {
+          x: (Math.random() - 0.5) * 8,
+          y: (Math.random() - 0.5) * 8,
+          z: (Math.random() - 0.5) * 8,
+        },
+        timestamp: now(),
+      });
+      if (Math.random() > 0.92) {
+        mockTransport.current.simulateIncomingAlert();
+      }
+    }, 3000);
+    mockTransport.current.onAlert((payload) => addAlert(payload, 'Mock alert received'));
+    return () => {
+      window.clearInterval(tick);
+      mockTransport.current.disconnect();
+    };
+  }, [demoMode]);
+
+  useEffect(() => {
+    if (!isMonitoring || !sensorData || !location) return;
+    const totalG = Math.sqrt(
+      sensorData.acceleration.x ** 2 + sensorData.acceleration.y ** 2 + sensorData.acceleration.z ** 2,
+    );
+    if (totalG < 16) return;
+    addAlert(
+      {
+        message: `Potential accident detected (${totalG.toFixed(1)}g)`,
+        severity: 'high',
+        location,
+        source: 'auto',
+      },
+      'Potential accident detected',
+    );
+  }, [isMonitoring, location, sensorData]);
+
+  const statusLabel = useMemo(() => {
+    if (demoMode) return 'Mocked';
+    if (isConnected) return 'Connected';
+    if (connectionError) return 'Error';
+    return 'Connecting...';
+  }, [connectionError, demoMode, isConnected]);
+
+  const handleStartMonitoring = async () => {
+    if (!demoMode) {
+      await accelerometer.requestPermission();
+      await geolocation.requestPermission();
+    }
     setIsMonitoring(true);
   };
 
   const handleSOS = () => {
-    if (location) {
-      const emergencyData = {
+    if (!location) {
+      setToast({ message: 'Cannot send alert: location not available.', type: 'error' });
+      return;
+    }
+    const emergencyData: EmergencyPayload = {
         type: 'manual_sos',
         message: 'Manual SOS triggered by user',
         severity: 'high',
-        location: {
-          lat: location.latitude,
-          lng: location.longitude,
-        },
-        timestamp: Date.now(),
+        location,
+        timestamp: now(),
       };
-      
-      const sent = sendMessage('emergency', emergencyData);
-      
-      if (sent) {
-        const newAlert: Alert = {
-          id: Date.now().toString(),
-          message: '🚨 SOS Emergency triggered!',
-          severity: 'high',
-          location: location,
-          timestamp: Date.now(),
-          acknowledged: false,
-        };
-        setAlerts(prev => [newAlert, ...prev]);
-        alert('🚨 EMERGENCY ALERT SENT! Help is on the way.');
-      } else {
-        alert('❌ Cannot send alert: Server not connected');
-      }
-    } else {
-      alert('❌ Cannot send alert: Location not available');
+
+    const sent = demoMode
+      ? mockTransport.current.emit('emergency', emergencyData)
+      : sendMessage('emergency', emergencyData);
+
+    if (!sent) {
+      setToast({ message: 'Cannot send alert: server not connected.', type: 'error' });
+      return;
     }
+    addAlert({ message: 'SOS emergency triggered!', severity: 'high', location, source: 'manual' }, 'SOS emergency triggered!');
+    setToast({ message: 'Emergency alert sent successfully.', type: 'success' });
   };
 
-  const handleAcknowledge = (id: string) => {
-    setAlerts(prev => prev.map(alert => 
-      alert.id === id ? { ...alert, acknowledged: true } : alert
-    ));
+  const updateAlertStatus = (id: string, status: AlertStatus) => {
+    setAlerts((prev) => prev.map((alert) => (alert.id === id ? { ...alert, status } : alert)));
   };
 
   return (
@@ -98,19 +178,29 @@ function App() {
               </div>
             </div>
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium ${
-              isConnected 
+              (demoMode || isConnected)
                 ? 'bg-green-500/20 text-green-400 border border-green-500/50' 
                 : 'bg-red-500/20 text-red-400 border border-red-500/50'
             }`}>
-              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
-              <span>{isConnected ? 'Connected' : connectionError ? 'Error' : 'Connecting...'}</span>
+              <div className={`w-2 h-2 rounded-full ${(demoMode || isConnected) ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
+              <span>{statusLabel}</span>
             </div>
+          </div>
+          <div className="mt-3 flex items-center gap-3 text-xs">
+            <button className="rounded bg-gray-700 px-2 py-1" onClick={() => setDemoMode((prev) => !prev)}>
+              Mode: {demoMode ? 'Demo' : 'Live'}
+            </button>
+            <button className="rounded bg-gray-700 px-2 py-1" onClick={() => setView((prev) => (prev === 'user' ? 'responder' : 'user'))}>
+              View: {view === 'user' ? 'User' : 'Responder'}
+            </button>
           </div>
         </div>
       </header>
 
       <main className="container mx-auto px-4 py-6 max-w-4xl">
-        {!isMonitoring ? (
+        {view === 'responder' ? (
+          <ResponderDashboard alerts={alerts} onStatusChange={updateAlertStatus} />
+        ) : !isMonitoring ? (
           <div className="min-h-[80vh] flex items-center justify-center">
             <div className="text-center max-w-md mx-auto">
               <div className="text-8xl mb-6">🚨</div>
@@ -132,6 +222,16 @@ function App() {
                   <span>✅</span> <span>Instant responder alerts</span>
                 </div>
               </div>
+              <div className="mb-6">
+                <PermissionsGate
+                  motionSupported={accelerometer.supportsDeviceMotion}
+                  motionGranted={accelerometer.permissionGranted || demoMode}
+                  locationSupported={geolocation.supportsGeolocation}
+                  locationGranted={!!location || demoMode}
+                  onRequestMotion={accelerometer.requestPermission}
+                  onRequestLocation={geolocation.requestPermission}
+                />
+              </div>
               <button 
                 className="w-full bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white px-8 py-4 text-lg rounded-xl font-bold transition-all transform hover:scale-105 active:scale-95 shadow-lg"
                 onClick={handleStartMonitoring}
@@ -152,10 +252,18 @@ function App() {
               </p>
             </div>
 
-            <SensorMonitor />
-            <EmergencyButton onSOS={handleSOS} disabled={!isConnected} />
+            <SensorMonitor
+              sensorData={sensorData}
+              motionActive={accelerometer.permissionGranted || demoMode}
+              motionError={accelerometer.error}
+              location={location}
+              locationWatching={geolocation.watching || demoMode}
+              locationError={geolocation.error}
+              permissionDenied={geolocation.permissionDenied}
+            />
+            <EmergencyButton onSOS={handleSOS} disabled={!location || (!demoMode && !isConnected)} />
             <LocationMap location={location} title="Your Current Location" />
-            <AlertHistory alerts={alerts} onAcknowledge={handleAcknowledge} />
+            <AlertHistory alerts={alerts} onAcknowledge={(id) => updateAlertStatus(id, 'acknowledged')} />
             
             <div className="text-center pt-4">
               <button 
@@ -175,6 +283,7 @@ function App() {
           <p className="mt-1">In case of emergency, press the SOS button or shake your phone violently</p>
         </div>
       </footer>
+      {toast ? <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} /> : null}
     </div>
   );
 }
