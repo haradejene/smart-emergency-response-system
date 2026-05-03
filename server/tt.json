@@ -1,0 +1,1 @@
+{"message":"Invalid data.","details":[{"field":"acceleration","issue":"Invalid input: expected object, received undefined"},{"field":"location","issue":"Invalid input: expected object, received undefined"},{"field":"timestamp","issue":"Invalid input: expected string, received undefined"}]}
