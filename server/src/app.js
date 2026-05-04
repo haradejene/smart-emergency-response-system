@@ -52,6 +52,12 @@ app.use(
 app.use("/api", healthRoutes);
 app.use("/api", sensorRoutes);
 
+// Provide a root response so requests to `/` (or HEAD /) don't return 404.
+// Render and some uptime checks may probe the root URL — redirect GET
+// requests to the health endpoint and answer HEAD requests with 200.
+app.head("/", (_req, res) => res.status(200).end());
+app.get("/", (_req, res) => res.redirect("/api/health"));
+
 // ── Error handling ──────────────────────────────────────────────
 app.use(notFoundHandler);
 app.use(errorHandler);
