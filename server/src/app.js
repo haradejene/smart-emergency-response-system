@@ -2,6 +2,8 @@ const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const morgan = require("morgan");
+const swaggerUi = require("swagger-ui-express");
+const swaggerDocument = require("../swagger.json");
 
 const logger = require("./utils/logger");
 const sensorRoutes = require("./routes/sensor.routes");
@@ -47,6 +49,13 @@ app.use(
     stream: morganStream,
   }),
 );
+
+// ── Swagger Documentation ───────────────────────────────────────
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
+  explorer: true,
+  customCss: ".swagger-ui .topbar { display: none }",
+  customSiteTitle: "Smart Emergency Response System API",
+}));
 
 // ── Routes ──────────────────────────────────────────────────────
 app.use("/api", healthRoutes);
