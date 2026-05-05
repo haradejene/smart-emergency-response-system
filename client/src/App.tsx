@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { SensorMonitor } from './components/SensorMonitor/SensorMonitor';
 import { EmergencyButton } from './components/EmergencyButton/EmergencyButton';
 import { LocationMap } from './components/LocationMap/LocationMap';
@@ -14,7 +14,6 @@ function App() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const monitoringStartRef = useRef(false);
   
   const { location, error: locationError, watching, permissionDenied } = useGeolocation({ 
     enabled: isMonitoring 
@@ -26,6 +25,31 @@ function App() {
     accuracy: location.accuracy || 10,
   } : null;
   
+  const handleIncidentDetected = useCallback((incident: Incident) => {
+    const newAlert: Alert = {
+      id: incident.id,
+      message: `🚨 ${incident.severity.toUpperCase()} severity incident detected!`,
+      severity: incident.severity,
+      location: {
+        latitude: incident.latitude,
+        longitude: incident.longitude,
+        accuracy: 10,
+      },
+      timestamp: new Date(incident.detected_at).getTime(),
+      acknowledged: false,
+      status: incident.status,
+      type: 'auto_detected',
+    };
+    setAlerts(prev => [newAlert, ...prev]);
+    
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification('🚨 EMERGENCY DETECTED!', {
+        body: newAlert.message,
+        icon: '/icon-192x192.png',
+      });
+    }
+  }, []);
+  
   const { 
     sensorData, 
     permissionGranted: motionPermission, 
@@ -34,78 +58,57 @@ function App() {
     updateLocation 
   } = useAccelerometer({
     enabled: isMonitoring && watching,
-    onIncidentDetected: (incident: Incident) => {
-      const newAlert: Alert = {
-        id: incident.id,
-        message: `🚨 ${incident.severity.toUpperCase()} severity incident detected!`,
-        severity: incident.severity,
-        location: {
-          latitude: incident.latitude,
-          longitude: incident.longitude,
-          accuracy: 10,
-        },
-        timestamp: new Date(incident.detected_at).getTime(),
-        acknowledged: false,
-        status: incident.status,
-        type: 'auto_detected',
-      };
-      setAlerts(prev => [newAlert, ...prev]);
-      
-      if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification('🚨 EMERGENCY DETECTED!', {
-          body: newAlert.message,
-          icon: '/icon-192x192.png',
-        });
-      }
-    }
+    onIncidentDetected: handleIncidentDetected,
   });
   
   const WS_URL = import.meta.env.VITE_WS_URL || 'wss://smart-emergency-response-system-2-c6wy.onrender.com';
   
-  const { isConnected, connectionError, sendMessage } = useWebSocket({
+  const handleAlert = useCallback((data: any) => {
+    let alertLocation: LocationData;
+    
+    if (data.location) {
+      alertLocation = {
+        latitude: data.location.latitude,
+        longitude: data.location.longitude,
+        accuracy: 10,
+      };
+    } else if (locationData) {
+      alertLocation = locationData;
+    } else {
+      alertLocation = {
+        latitude: 0,
+        longitude: 0,
+        accuracy: 0,
+      };
+    }
+    
+    const newAlert: Alert = {
+      id: data.id || Date.now().toString(),
+      message: data.message || 'Emergency detected!',
+      severity: data.severity,
+      location: alertLocation,
+      timestamp: data.timestamp || Date.now(),
+      acknowledged: false,
+      status: data.status,
+      type: data.type,
+    };
+    setAlerts(prev => [newAlert, ...prev]);
+    
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification('🚨 EMERGENCY ALERT!', {
+        body: newAlert.message,
+        icon: '/icon-192x192.png',
+      });
+    }
+  }, [locationData]);
+  
+  const { isConnected, sendMessage } = useWebSocket({
     url: WS_URL,
-    autoConnect: true,
+    autoConnect: isMonitoring,
     enabled: isMonitoring,
     onConnect: () => console.log('WebSocket connected'),
     onDisconnect: () => console.log('WebSocket disconnected'),
-    onAlert: (data) => {
-      let alertLocation: LocationData;
-      
-      if (data.location) {
-        alertLocation = {
-          latitude: data.location.latitude,
-          longitude: data.location.longitude,
-          accuracy: 10,
-        };
-      } else if (locationData) {
-        alertLocation = locationData;
-      } else {
-        alertLocation = {
-          latitude: 0,
-          longitude: 0,
-          accuracy: 0,
-        };
-      }
-      
-      const newAlert: Alert = {
-        id: data.id || Date.now().toString(),
-        message: data.message || 'Emergency detected!',
-        severity: data.severity,
-        location: alertLocation,
-        timestamp: data.timestamp || Date.now(),
-        acknowledged: false,
-        status: data.status,
-        type: data.type,
-      };
-      setAlerts(prev => [newAlert, ...prev]);
-      
-      if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification('🚨 EMERGENCY ALERT!', {
-          body: newAlert.message,
-          icon: '/icon-192x192.png',
-        });
-      }
-    },
+    onAlert: handleAlert,
   });
 
   useEffect(() => {
@@ -145,12 +148,7 @@ function App() {
     if ('Notification' in window && Notification.permission === 'default') {
       await Notification.requestPermission();
     }
-    monitoringStartRef.current = true;
     setIsMonitoring(true);
-    
-    setTimeout(() => {
-      monitoringStartRef.current = false;
-    }, 1000);
   };
 
   const handleStopMonitoring = () => {
@@ -239,7 +237,7 @@ function App() {
                   : 'bg-red-500/20 text-red-400 border border-red-500/50'
               }`}>
                 <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
-                <span>{isConnected ? 'Connected' : connectionError ? 'Error' : 'Connecting...'}</span>
+                <span>{isConnected ? 'Connected' : 'Disconnected'}</span>
               </div>
             </div>
           </div>
