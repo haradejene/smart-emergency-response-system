@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { SensorMonitor } from './components/SensorMonitor/SensorMonitor';
 import { EmergencyButton } from './components/EmergencyButton/EmergencyButton';
 import { LocationMap } from './components/LocationMap/LocationMap';
@@ -14,12 +14,12 @@ function App() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const monitoringStartRef = useRef(false);
   
   const { location, error: locationError, watching, permissionDenied } = useGeolocation({ 
     enabled: isMonitoring 
   });
   
-  // Convert location to LocationData type with accuracy
   const locationData: LocationData | null = location ? {
     latitude: location.latitude,
     longitude: location.longitude,
@@ -35,7 +35,6 @@ function App() {
   } = useAccelerometer({
     enabled: isMonitoring && watching,
     onIncidentDetected: (incident: Incident) => {
-      // Convert incident to alert
       const newAlert: Alert = {
         id: incident.id,
         message: `🚨 ${incident.severity.toUpperCase()} severity incident detected!`,
@@ -52,7 +51,6 @@ function App() {
       };
       setAlerts(prev => [newAlert, ...prev]);
       
-      // Show notification
       if ('Notification' in window && Notification.permission === 'granted') {
         new Notification('🚨 EMERGENCY DETECTED!', {
           body: newAlert.message,
@@ -65,60 +63,57 @@ function App() {
   const WS_URL = import.meta.env.VITE_WS_URL || 'wss://smart-emergency-response-system-2-c6wy.onrender.com';
   
   const { isConnected, connectionError, sendMessage } = useWebSocket({
-  url: WS_URL,
-  autoConnect: true,
-  enabled: isMonitoring,
-  onConnect: () => console.log('WebSocket connected'),
-  onDisconnect: () => console.log('WebSocket disconnected'),
-  onAlert: (data) => {
-    // Build location with proper accuracy
-    let alertLocation: LocationData;
-    
-    if (data.location) {
-      alertLocation = {
-        latitude: data.location.latitude,
-        longitude: data.location.longitude,
-        accuracy: 10, // WebSocket data doesn't have accuracy, use default
+    url: WS_URL,
+    autoConnect: true,
+    enabled: isMonitoring,
+    onConnect: () => console.log('WebSocket connected'),
+    onDisconnect: () => console.log('WebSocket disconnected'),
+    onAlert: (data) => {
+      let alertLocation: LocationData;
+      
+      if (data.location) {
+        alertLocation = {
+          latitude: data.location.latitude,
+          longitude: data.location.longitude,
+          accuracy: 10,
+        };
+      } else if (locationData) {
+        alertLocation = locationData;
+      } else {
+        alertLocation = {
+          latitude: 0,
+          longitude: 0,
+          accuracy: 0,
+        };
+      }
+      
+      const newAlert: Alert = {
+        id: data.id || Date.now().toString(),
+        message: data.message || 'Emergency detected!',
+        severity: data.severity,
+        location: alertLocation,
+        timestamp: data.timestamp || Date.now(),
+        acknowledged: false,
+        status: data.status,
+        type: data.type,
       };
-    } else if (locationData) {
-      alertLocation = locationData;
-    } else {
-      alertLocation = {
-        latitude: 0,
-        longitude: 0,
-        accuracy: 0,
-      };
-    }
-    
-    const newAlert: Alert = {
-      id: data.id || Date.now().toString(),
-      message: data.message || 'Emergency detected!',
-      severity: data.severity,
-      location: alertLocation,
-      timestamp: data.timestamp || Date.now(),
-      acknowledged: false,
-      status: data.status,
-      type: data.type,
-    };
-    setAlerts(prev => [newAlert, ...prev]);
-    
-    // Show notification
-    if ('Notification' in window && Notification.permission === 'granted') {
-      new Notification('🚨 EMERGENCY ALERT!', {
-        body: newAlert.message,
-        icon: '/icon-192x192.png',
-      });
-    }
-  },
-});
-  // Update location in accelerometer hook
+      setAlerts(prev => [newAlert, ...prev]);
+      
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('🚨 EMERGENCY ALERT!', {
+          body: newAlert.message,
+          icon: '/icon-192x192.png',
+        });
+      }
+    },
+  });
+
   useEffect(() => {
     if (location) {
       updateLocation(location.latitude, location.longitude);
     }
   }, [location, updateLocation]);
 
-  // Handle online/offline status
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
@@ -126,7 +121,6 @@ function App() {
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     
-    // Check backend health
     const checkHealth = async () => {
       const isHealthy = await apiService.getHealth();
       console.log('Backend health:', isHealthy);
@@ -140,7 +134,6 @@ function App() {
     };
   }, []);
 
-  // PWA install prompt
   useEffect(() => {
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
@@ -149,12 +142,15 @@ function App() {
   }, []);
 
   const handleStartMonitoring = async () => {
-    // Request notification permission
     if ('Notification' in window && Notification.permission === 'default') {
       await Notification.requestPermission();
     }
-    
+    monitoringStartRef.current = true;
     setIsMonitoring(true);
+    
+    setTimeout(() => {
+      monitoringStartRef.current = false;
+    }, 1000);
   };
 
   const handleStopMonitoring = () => {
