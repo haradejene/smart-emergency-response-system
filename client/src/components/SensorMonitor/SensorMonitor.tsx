@@ -6,9 +6,11 @@ interface SensorMonitorProps {
   motionActive: boolean;
   motionError: string | null;
   location: LocationData | null;
-  locationWatching: boolean;
   locationError: string | null;
-  permissionDenied: boolean;
+  locationActive: boolean;
+  locationWatching?: boolean;
+  permissionDenied?: boolean;
+  onUpdateLocation: (lat: number, lng: number) => void;
 }
 
 export const SensorMonitor: React.FC<SensorMonitorProps> = ({
@@ -16,16 +18,17 @@ export const SensorMonitor: React.FC<SensorMonitorProps> = ({
   motionActive,
   motionError,
   location,
-  locationWatching,
   locationError,
-  permissionDenied,
+  locationActive,
+  locationWatching = false,
+  permissionDenied = false,
+  onUpdateLocation,
 }) => {
-
   return (
     <div className="p-4 m-4 bg-gray-50 dark:bg-gray-800 rounded-xl shadow-lg">
       <h3 className="text-lg font-bold mb-4 text-gray-800 dark:text-white flex items-center gap-2">
         <span>📡</span> Sensor Status
-        {motionActive && locationWatching && (
+        {motionActive && locationActive && (
           <span className="text-xs bg-green-500 text-white px-2 py-1 rounded-full animate-pulse">
             Monitoring Active
           </span>
@@ -40,7 +43,7 @@ export const SensorMonitor: React.FC<SensorMonitorProps> = ({
             <span className="font-semibold text-gray-700 dark:text-gray-300">Accelerometer</span>
           </div>
           <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-            motionActive
+            motionActive 
               ? 'bg-green-500 text-white' 
               : 'bg-red-500 text-white'
           }`}>
@@ -90,9 +93,9 @@ export const SensorMonitor: React.FC<SensorMonitorProps> = ({
             <span className="font-semibold text-gray-700 dark:text-gray-300">GPS Location</span>
           </div>
           <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-            locationWatching ? 'bg-green-500 text-white' : 'bg-yellow-500 text-white'
+            locationActive || locationWatching ? 'bg-green-500 text-white' : 'bg-yellow-500 text-white'
           }`}>
-            {locationWatching ? 'Locked' : 'Searching...'}
+            {locationActive || locationWatching ? 'Locked' : 'Searching...'}
           </span>
         </div>
         
