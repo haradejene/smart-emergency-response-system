@@ -12,7 +12,7 @@ export const useAccelerometer = (options: UseAccelerometerOptions = {}) => {
   const {
     onIncidentDetected,
     enabled = true,
-    sendInterval = 500, // Send data every 500ms
+    sendInterval = 500,
   } = options;
   
   const [sensorData, setSensorData] = useState<SensorData | null>(null);
@@ -25,6 +25,7 @@ export const useAccelerometer = (options: UseAccelerometerOptions = {}) => {
   const lastLocationRef = useRef<{ latitude: number; longitude: number } | null>(null);
   const deviceId = useRef<string>(localStorage.getItem('device_id') || 
     `device_${Math.random().toString(36).substr(2, 9)}`);
+  const motionHandlerRef = useRef<((event: DeviceMotionEvent) => void) | null>(null);
 
   // Save device ID
   useEffect(() => {
@@ -38,11 +39,9 @@ export const useAccelerometer = (options: UseAccelerometerOptions = {}) => {
     setIsSending(true);
     
     try {
-      // Send via REST API (for incident detection)
       const result = await apiService.sendSensorData(accel, loc);
       
       if (result.incident) {
-        // Incident detected by backend!
         console.log('🚨 Incident detected by backend:', result.incident);
         onIncidentDetected?.(result.incident);
       }
@@ -76,7 +75,6 @@ export const useAccelerometer = (options: UseAccelerometerOptions = {}) => {
           };
           setSensorData(data);
           
-          // Send to backend at specified interval
           const now = Date.now();
           if (now - lastSendTime.current >= sendInterval && lastLocationRef.current) {
             lastSendTime.current = now;
@@ -85,11 +83,10 @@ export const useAccelerometer = (options: UseAccelerometerOptions = {}) => {
         }
       };
 
+      motionHandlerRef.current = handleMotion;
       window.addEventListener('devicemotion', handleMotion);
       setIsListening(true);
       setError(null);
-      
-      return () => window.removeEventListener('devicemotion', handleMotion);
     };
 
     const requestPermission = async () => {
@@ -104,6 +101,7 @@ export const useAccelerometer = (options: UseAccelerometerOptions = {}) => {
             setError('Permission denied for motion sensors');
           }
         } catch (err) {
+          console.error('Error requesting motion permission:', err);
           setError('Failed to request motion permission');
         }
       } else {
@@ -126,13 +124,20 @@ export const useAccelerometer = (options: UseAccelerometerOptions = {}) => {
       return () => {
         window.removeEventListener('click', handleUserGesture);
         window.removeEventListener('touchstart', handleUserGesture);
+        if (motionHandlerRef.current) {
+          window.removeEventListener('devicemotion', motionHandlerRef.current);
+        }
       };
     } else {
       requestPermission();
+      return () => {
+        if (motionHandlerRef.current) {
+          window.removeEventListener('devicemotion', motionHandlerRef.current);
+        }
+      };
     }
   }, [enabled, sendInterval, onIncidentDetected]);
 
-  // Function to update location from parent component
   const updateLocation = (latitude: number, longitude: number) => {
     lastLocationRef.current = { latitude, longitude };
   };
