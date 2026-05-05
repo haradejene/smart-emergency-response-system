@@ -27,18 +27,22 @@ export const useWebSocket = (options: WebSocketOptions) => {
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [reconnectAttempts, setReconnectAttempts] = useState<number>(0);
   const socketRef = useRef<Socket | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isConnectingRef = useRef<boolean>(false);
 
   const handleConnected = useCallback(() => {
     console.log('✅ WebSocket connected to:', url);
     setIsConnected(true);
     setConnectionError(null);
     setReconnectAttempts(0);
+    isConnectingRef.current = false;
     onConnect?.();
   }, [onConnect, url]);
 
   const handleDisconnected = useCallback(() => {
     console.log('❌ WebSocket disconnected');
     setIsConnected(false);
+    isConnectingRef.current = false;
     onDisconnect?.();
   }, [onDisconnect]);
 
@@ -46,6 +50,7 @@ export const useWebSocket = (options: WebSocketOptions) => {
     console.error('🔌 WebSocket connection error:', error.message);
     setConnectionError(error.message);
     setReconnectAttempts((prev) => prev + 1);
+    isConnectingRef.current = false;
   }, []);
 
   const handleAlert = useCallback(
@@ -71,7 +76,7 @@ export const useWebSocket = (options: WebSocketOptions) => {
         autoConnect: false,
         transports: ['websocket'],
         reconnection: true,
-        reconnectionAttempts: 10,
+        reconnectionAttempts: 5,
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,
         timeout: 10000,
@@ -95,24 +100,46 @@ export const useWebSocket = (options: WebSocketOptions) => {
       return;
     }
     
-    if (!socketRef.current) {
-      console.log('Creating new WebSocket connection...');
-      const socket = createSocket();
-      if (!socket) return;
-      
-      socketRef.current = socket;
-      socket.on('connect', handleConnected);
-      socket.on('disconnect', handleDisconnected);
-      socket.on('connect_error', handleConnectionError);
-      socket.on('alert', handleAlert);
-      socket.on('incident:confirmed', handleIncidentConfirmed);
+    if (isConnectingRef.current) {
+      console.log('WebSocket already connecting, skipping...');
+      return;
     }
     
-    console.log('Connecting WebSocket...');
-    socketRef.current.connect();
+    // Clear any pending reconnect timeout
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    
+    isConnectingRef.current = true;
+    
+    reconnectTimeoutRef.current = setTimeout(() => {
+      if (!socketRef.current) {
+        const socket = createSocket();
+        if (!socket) {
+          isConnectingRef.current = false;
+          return;
+        }
+        
+        socketRef.current = socket;
+        socket.on('connect', handleConnected);
+        socket.on('disconnect', handleDisconnected);
+        socket.on('connect_error', handleConnectionError);
+        socket.on('alert', handleAlert);
+        socket.on('incident:confirmed', handleIncidentConfirmed);
+      }
+      
+      console.log('Connecting WebSocket...');
+      socketRef.current.connect();
+    }, 100);
   }, [createSocket, enabled, handleAlert, handleConnected, handleConnectionError, handleDisconnected, handleIncidentConfirmed]);
 
   const disconnect = useCallback(() => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    
     if (socketRef.current) {
       console.log('Disconnecting WebSocket...');
       socketRef.current.off('connect', handleConnected);
@@ -124,6 +151,7 @@ export const useWebSocket = (options: WebSocketOptions) => {
       socketRef.current = null;
     }
     setIsConnected(false);
+    isConnectingRef.current = false;
   }, [handleAlert, handleConnected, handleConnectionError, handleDisconnected, handleIncidentConfirmed]);
 
   const sendMessage = useCallback((event: string, data: EmergencyPayload | SensorDataPayload | AlertPayload) => {
