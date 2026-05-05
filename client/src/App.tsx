@@ -3,22 +3,31 @@ import { SensorMonitor } from './components/SensorMonitor/SensorMonitor';
 import { EmergencyButton } from './components/EmergencyButton/EmergencyButton';
 import { LocationMap } from './components/LocationMap/LocationMap';
 import { AlertHistory } from './components/AlertHistory/AlertHistory';
+import { AutoDetectCountdown } from './components/AutoDetectCountdown/AutoDetectCountdown';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useGeolocation } from './hooks/useGeolocation';
 import { useAccelerometer } from './hooks/useAccelerometer';
 import { apiService } from './services/apiService';
 import type { Alert, AlertSeverity, EmergencyType, LocationData, Incident } from './types';
 
+const HIGH_G_THRESHOLD = 16;
+const AUTO_DETECT_COUNTDOWN_MS = 10_000;
+
 function App() {
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [pendingAutoIncident, setPendingAutoIncident] = useState<{
+    endsAt: number;
+    incident: Incident;
+  } | null>(null);
+  const lastPendingIncidentIdRef = useRef<string | null>(null);
   
   const { location, error: locationError, watching, permissionDenied } = useGeolocation({ 
     enabled: isMonitoring 
   });
-  
+
   const locationData: LocationData | null = location ? {
     latitude: location.latitude,
     longitude: location.longitude,
@@ -26,28 +35,19 @@ function App() {
   } : null;
   
   const handleIncidentDetected = useCallback((incident: Incident) => {
-    const newAlert: Alert = {
-      id: incident.id,
-      message: `🚨 ${incident.severity.toUpperCase()} severity incident detected!`,
-      severity: incident.severity,
-      location: {
-        latitude: incident.latitude,
-        longitude: incident.longitude,
-        accuracy: 10,
-      },
-      timestamp: new Date(incident.detected_at).getTime(),
-      acknowledged: false,
-      status: incident.status,
-      type: 'auto_detected',
-    };
-    setAlerts(prev => [newAlert, ...prev]);
-    
-    if ('Notification' in window && Notification.permission === 'granted') {
-      new Notification('🚨 EMERGENCY DETECTED!', {
-        body: newAlert.message,
-        icon: '/icon-192x192.png',
-      });
-    }
+    if (lastPendingIncidentIdRef.current === incident.id) return;
+    if (pendingAutoIncident) return;
+    lastPendingIncidentIdRef.current = incident.id;
+    setPendingAutoIncident({
+      endsAt: Date.now() + AUTO_DETECT_COUNTDOWN_MS,
+      incident,
+    });
+    window.setTimeout(() => {
+      // allow future incidents after this window
+      if (lastPendingIncidentIdRef.current === incident.id) {
+        lastPendingIncidentIdRef.current = null;
+      }
+    }, AUTO_DETECT_COUNTDOWN_MS + 1000);
   }, []);
   
   const { 
@@ -143,6 +143,59 @@ function App() {
       setDeferredPrompt(e);
     });
   }, []);
+
+  useEffect(() => {
+    if (!isMonitoring) {
+      setPendingAutoIncident(null);
+    }
+  }, [isMonitoring]);
+
+  useEffect(() => {
+    if (!pendingAutoIncident) return;
+    const snapshot = pendingAutoIncident;
+    const delay = Math.max(0, snapshot.endsAt - Date.now());
+    const timer = window.setTimeout(() => {
+      const newAlert: Alert = {
+        id: snapshot.incident.id,
+        message: `🚨 ${snapshot.incident.severity.toUpperCase()} severity incident detected!`,
+        severity: snapshot.incident.severity,
+        location: {
+          latitude: snapshot.incident.latitude,
+          longitude: snapshot.incident.longitude,
+          accuracy: 10,
+        },
+        timestamp: new Date(snapshot.incident.detected_at).getTime(),
+        acknowledged: false,
+        status: snapshot.incident.status,
+        type: 'auto_detected',
+      };
+      setAlerts((prev) => [newAlert, ...prev]);
+
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('🚨 EMERGENCY DETECTED!', {
+          body: newAlert.message,
+          icon: '/icon-192x192.png',
+        });
+      }
+
+      // Optionally notify backend/responders immediately if connected
+      const emergencyData = {
+        type: 'accident' as EmergencyType,
+        message: newAlert.message,
+        severity: newAlert.severity as AlertSeverity,
+        location: {
+          lat: newAlert.location.latitude,
+          lng: newAlert.location.longitude,
+        },
+        device_id: apiService.getDeviceId(),
+        timestamp: Date.now(),
+      };
+      sendMessage('emergency', emergencyData);
+
+      setPendingAutoIncident(null);
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [pendingAutoIncident, sendMessage]);
 
   const handleStartMonitoring = async () => {
     if ('Notification' in window && Notification.permission === 'default') {
@@ -334,6 +387,13 @@ function App() {
           <p className="mt-1">In case of emergency, press the SOS button or shake your phone violently</p>
         </div>
       </footer>
+      {pendingAutoIncident ? (
+        <AutoDetectCountdown
+          endsAt={pendingAutoIncident.endsAt}
+          totalG={HIGH_G_THRESHOLD}
+          onCancel={() => setPendingAutoIncident(null)}
+        />
+      ) : null}
     </div>
   );
 }

@@ -1,4 +1,6 @@
+import { useMemo } from 'react';
 import type { LocationData } from '../../types';
+import { LeafletMapView } from '../LeafletMapView/LeafletMapView';
 
 interface LocationMapProps {
   location: LocationData | null;
@@ -10,39 +12,52 @@ export const LocationMap = ({ location, title = 'Current Location' }: LocationMa
     ? `https://www.google.com/maps?q=${location.latitude},${location.longitude}`
     : '#';
 
+  const markers = useMemo(
+    () =>
+      location
+        ? [
+            {
+              id: 'user-location',
+              lat: location.latitude,
+              lng: location.longitude,
+              label: title,
+            },
+          ]
+        : [],
+    [location, title],
+  );
+
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-lg overflow-hidden">
-      <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+    <div className="overflow-hidden rounded-xl bg-white shadow-lg dark:bg-gray-900">
+      <div className="border-b border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-800">
         <h4 className="font-semibold text-gray-800 dark:text-white">{title}</h4>
       </div>
-      
+
       <div className="p-4">
         {location ? (
           <>
-            <div className="bg-gray-100 dark:bg-gray-800 rounded-lg h-48 flex items-center justify-center mb-3">
-              <div className="text-center">
-                <div className="text-4xl mb-2">📍</div>
-                <div className="text-sm text-gray-600 dark:text-gray-400 font-mono">
-                  {location.latitude.toFixed(6)}°, {location.longitude.toFixed(6)}°
-                </div>
-                <div className="text-xs text-gray-500 mt-1">
-                  Accuracy: ±{location.accuracy.toFixed(0)}m
-                </div>
-              </div>
+            <LeafletMapView markers={markers} heightClass="h-52 md:h-56" />
+
+            <div className="mt-3 text-center text-xs text-gray-500 dark:text-gray-400">
+              <span className="font-mono">
+                {location.latitude.toFixed(6)}°, {location.longitude.toFixed(6)}°
+              </span>
+              <span className="mx-2">·</span>
+              <span>±{location.accuracy.toFixed(0)} m</span>
             </div>
-            
+
             <a
               href={googleMapsUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="block text-center bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-lg transition-colors"
+              className="mt-3 block rounded-lg bg-blue-500 py-2 text-center text-white transition-colors hover:bg-blue-600"
             >
-              Open in Google Maps 🗺️
+              Open in Google Maps
             </a>
           </>
         ) : (
-          <div className="text-center py-8 text-gray-400">
-            <div className="text-4xl mb-2">📍</div>
+          <div className="py-8 text-center text-gray-400">
+            <div className="mb-2 text-4xl">📍</div>
             <p>Waiting for location...</p>
           </div>
         )}
