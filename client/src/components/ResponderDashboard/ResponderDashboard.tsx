@@ -5,9 +5,10 @@ import { LeafletMapView } from '../LeafletMapView/LeafletMapView';
 interface ResponderDashboardProps {
   alerts: Alert[];
   onStatusChange: (id: string, status: AlertStatus) => void;
+  onAcknowledge?: (id: string) => void;
 }
 
-export const ResponderDashboard = ({ alerts, onStatusChange }: ResponderDashboardProps) => {
+export const ResponderDashboard = ({ alerts, onStatusChange, onAcknowledge }: ResponderDashboardProps) => {
   const sorted = useMemo(() => [...alerts].sort((a, b) => b.timestamp - a.timestamp), [alerts]);
 
   const mapMarkers = useMemo(
@@ -42,21 +43,21 @@ export const ResponderDashboard = ({ alerts, onStatusChange }: ResponderDashboar
                   <button
                     type="button"
                     className="rounded bg-blue-600 px-2 py-1"
-                    onClick={() => onStatusChange(alert.id, 'acknowledged')}
+                    onClick={() => onAcknowledge?.(alert.id)}
                   >
                     Acknowledge
                   </button>
                   <button
                     type="button"
                     className="rounded bg-green-600 px-2 py-1"
-                    onClick={() => onStatusChange(alert.id, 'dispatched')}
+                    onClick={() => onStatusChange(alert.id, 'DISPATCHED')}
                   >
                     Dispatch
                   </button>
                   <button
                     type="button"
                     className="rounded bg-gray-600 px-2 py-1"
-                    onClick={() => onStatusChange(alert.id, 'cancelled')}
+                    onClick={() => onStatusChange(alert.id, 'FALSE_ALARM')}
                   >
                     Cancel
                   </button>

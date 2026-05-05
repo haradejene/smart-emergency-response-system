@@ -1,8 +1,9 @@
-import type { AlertPayload, EmergencyPayload, LocationData } from '../../types';
+import type { AlertPayload, AlertSeverity, AlertStatus, EmergencyPayload, EmergencyType, LocationData } from '../../types';
 
 type AlertHandler = (data: AlertPayload) => void;
 
 const randomShift = () => (Math.random() - 0.5) * 0.0012;
+const makeId = () => `mock_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 
 export class MockTransport {
   private connected = false;
@@ -29,14 +30,38 @@ export class MockTransport {
     if (!this.connected) return false;
     if (event === 'emergency' && this.onAlertHandler) {
       const eventPayload = payload as EmergencyPayload;
-      this.onAlertHandler({
-        message: `Responder acknowledged: ${eventPayload.message}`,
+      this.onAlertHandler(this.toAlertPayload({
+        type: eventPayload.type,
+        message: `Responder received: ${eventPayload.message}`,
         severity: eventPayload.severity,
-        location: eventPayload.location,
-        source: 'remote',
-      });
+        status: 'PENDING',
+        location: {
+          latitude: eventPayload.location.lat,
+          longitude: eventPayload.location.lng,
+        },
+      }));
     }
     return true;
+  }
+
+  private toAlertPayload(input: {
+    type: EmergencyType;
+    message: string;
+    severity: AlertSeverity;
+    status: AlertStatus;
+    location: { latitude: number; longitude: number };
+    id?: string;
+    timestamp?: number;
+  }): AlertPayload {
+    return {
+      id: input.id ?? makeId(),
+      type: input.type,
+      message: input.message,
+      severity: input.severity,
+      location: input.location,
+      timestamp: input.timestamp ?? Date.now(),
+      status: input.status,
+    };
   }
 
   nextLocation() {
@@ -50,11 +75,13 @@ export class MockTransport {
 
   simulateIncomingAlert() {
     if (!this.connected || !this.onAlertHandler) return;
-    this.onAlertHandler({
+    const loc = this.nextLocation();
+    this.onAlertHandler(this.toAlertPayload({
+      type: 'auto_detected',
       message: 'Auto-detected impact from nearby device',
       severity: 'high',
-      location: this.nextLocation(),
-      source: 'remote',
-    });
+      status: 'PENDING',
+      location: { latitude: loc.latitude, longitude: loc.longitude },
+    }));
   }
 }
