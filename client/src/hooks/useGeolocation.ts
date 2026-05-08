@@ -2,37 +2,43 @@ import { useState, useEffect } from 'react';
 import type { LocationData } from '../types';
 
 interface UseGeolocationOptions {
+  onLocationUpdate?: (latitude: number, longitude: number) => void;
   enabled?: boolean;
-  mockLocation?: LocationData | null;
 }
 
-const supportsGeolocation = typeof navigator !== 'undefined' && 'geolocation' in navigator;
-
 export const useGeolocation = (options: UseGeolocationOptions = {}) => {
-  const { enabled = true, mockLocation = null } = options;
+  const { onLocationUpdate, enabled = true } = options;
+  
   const [location, setLocation] = useState<LocationData | null>(null);
-  const [error, setError] = useState<string | null>(() =>
-    supportsGeolocation ? null : 'Geolocation not supported by this browser',
-  );
+  const [error, setError] = useState<string | null>(null);
   const [watching, setWatching] = useState<boolean>(false);
   const [permissionDenied, setPermissionDenied] = useState<boolean>(false);
-  const [permissionRequested, setPermissionRequested] = useState<boolean>(false);
 
   useEffect(() => {
-    if (!enabled || !supportsGeolocation) {
-      setWatching(false);
+    if (!enabled) return;
+
+    if (!navigator.geolocation) {
+      setError('Geolocation not supported by this browser');
       return;
     }
-    const watchId = navigator.geolocation.watchPosition(
+
+    let watchId: number;
+
+    const startWatching = () => {
+      watchId = navigator.geolocation.watchPosition(
         (position) => {
-          setLocation({
+          const locData = {
             latitude: position.coords.latitude,
             longitude: position.coords.longitude,
             accuracy: position.coords.accuracy,
-          });
+          };
+          setLocation(locData);
           setWatching(true);
           setError(null);
           setPermissionDenied(false);
+          
+          // Notify parent component of location update
+          onLocationUpdate?.(locData.latitude, locData.longitude);
         },
         (err) => {
           console.error('Geolocation error:', err);
@@ -41,6 +47,8 @@ export const useGeolocation = (options: UseGeolocationOptions = {}) => {
             setError('Location permission denied. Please enable GPS.');
           } else if (err.code === 2) {
             setError('Position unavailable. Check your GPS signal.');
+          } else if (err.code === 3) {
+            setError('Location request timed out.');
           } else {
             setError(err.message);
           }
@@ -50,61 +58,23 @@ export const useGeolocation = (options: UseGeolocationOptions = {}) => {
           enableHighAccuracy: true,
           maximumAge: 5000,
           timeout: 15000,
-        },
+        }
       );
+    };
+
+    startWatching();
 
     return () => {
-      navigator.geolocation.clearWatch(watchId);
-      setWatching(false);
-    };
-  }, [enabled]);
-
-  useEffect(() => {
-    if (!mockLocation) return;
-    setLocation(mockLocation);
-    setWatching(true);
-    setPermissionDenied(false);
-    setError(null);
-  }, [mockLocation]);
-
-  const requestPermission = () =>
-    new Promise<boolean>((resolve) => {
-      if (!supportsGeolocation) {
-        resolve(false);
-        return;
+      if (watchId) {
+        navigator.geolocation.clearWatch(watchId);
       }
-      setPermissionRequested(true);
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setLocation({
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            accuracy: position.coords.accuracy,
-          });
-          setPermissionDenied(false);
-          setError(null);
-          resolve(true);
-        },
-        (err) => {
-          if (err.code === 1) {
-            setPermissionDenied(true);
-            setError('Location permission denied. Please enable GPS.');
-          } else {
-            setError(err.message);
-          }
-          resolve(false);
-        },
-        { enableHighAccuracy: true, timeout: 15000 },
-      );
-    });
+    };
+  }, [enabled, onLocationUpdate]);
 
   return {
     location,
     error,
     watching,
     permissionDenied,
-    supportsGeolocation,
-    permissionRequested,
-    requestPermission,
   };
 };
