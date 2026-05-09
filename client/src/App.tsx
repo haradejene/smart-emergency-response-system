@@ -14,6 +14,14 @@ import { apiService } from './services/apiService';
 import { MockTransport } from './services/transport/mockTransport';
 import type { Alert, AlertSeverity, AlertStatus, EmergencyType, LocationData, Incident, SensorData } from './types';
 
+// Helper function to generate unique IDs
+const generateUniqueId = (): string => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${performance.now()}`;
+};
+
 const HIGH_G_THRESHOLD = 16;
 const AUTO_DETECT_COUNTDOWN_MS = 10_000;
 const ALERT_HISTORY_KEY = 'sers-alert-history';
@@ -59,6 +67,8 @@ function App() {
 
   const addAlert = useCallback((alert: Alert) => {
     setAlerts((prev) => {
+      // Check for duplicate by ID
+      if (prev.some(a => a.id === alert.id)) return prev;
       const next = [alert, ...prev].slice(0, 100);
       localStorage.setItem(ALERT_HISTORY_KEY, JSON.stringify(next));
       return next;
@@ -74,7 +84,6 @@ function App() {
       incident,
     });
     window.setTimeout(() => {
-      // allow future incidents after this window
       if (lastPendingIncidentIdRef.current === incident.id) {
         lastPendingIncidentIdRef.current = null;
       }
@@ -115,7 +124,7 @@ function App() {
     }
     
     const newAlert: Alert = {
-      id: data.id || Date.now().toString(),
+      id: data.id || generateUniqueId(),
       message: data.message || 'Emergency detected!',
       severity: data.severity,
       location: alertLocation,
@@ -124,7 +133,7 @@ function App() {
       status: data.status,
       type: data.type,
     };
-    setAlerts(prev => [newAlert, ...prev]);
+    addAlert(newAlert);
     
     if ('Notification' in window && Notification.permission === 'granted') {
       new Notification('🚨 EMERGENCY ALERT!', {
@@ -132,7 +141,7 @@ function App() {
         icon: '/icon-192x192.png',
       });
     }
-  }, [locationData]);
+  }, [locationData, addAlert]);
   
   const { isConnected, sendMessage } = useWebSocket({
     url: WS_URL,
@@ -181,7 +190,7 @@ function App() {
     mockTransport.current.connect();
     mockTransport.current.onAlert((payload) => {
       const newAlert: Alert = {
-        id: payload.id,
+        id: payload.id || generateUniqueId(),
         message: payload.message,
         severity: payload.severity,
         location: {
@@ -229,7 +238,7 @@ function App() {
     );
     if (totalG < HIGH_G_THRESHOLD) return;
     const fakeIncident: Incident = {
-      id: `demo_incident_${Date.now()}`,
+      id: `demo_incident_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
       device_id: 'demo_device',
       status: 'PENDING',
       severity: 'high',
@@ -265,7 +274,7 @@ function App() {
         status: snapshot.incident.status,
         type: 'auto_detected',
       };
-      setAlerts((prev) => [newAlert, ...prev]);
+      addAlert(newAlert);
 
       if ('Notification' in window && Notification.permission === 'granted') {
         new Notification('🚨 EMERGENCY DETECTED!', {
@@ -274,7 +283,6 @@ function App() {
         });
       }
 
-      // Optionally notify backend/responders immediately if connected
       const emergencyData = {
         type: 'accident' as EmergencyType,
         message: newAlert.message,
@@ -322,7 +330,7 @@ function App() {
       
       if (sent) {
         const newAlert: Alert = {
-          id: Date.now().toString(),
+          id: generateUniqueId(),
           message: '🚨 SOS Emergency triggered!',
           severity: 'high',
           location: {
