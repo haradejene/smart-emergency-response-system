@@ -1,16 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 
 interface EmergencyButtonProps {
   onSOS: () => void;
   disabled?: boolean;
 }
 
-export const EmergencyButton: React.FC<EmergencyButtonProps> = ({ onSOS, disabled = false }) => {
+export const EmergencyButton = ({ onSOS, disabled = false }: EmergencyButtonProps) => {
   const [confirming, setConfirming] = useState(false);
   const [countdown, setCountdown] = useState(5);
 
   useEffect(() => {
-    let interval: ReturnType<typeof setInterval> | undefined;
+    let interval: NodeJS.Timeout;
     
     if (confirming && countdown > 0) {
       interval = setInterval(() => {
@@ -18,7 +18,8 @@ export const EmergencyButton: React.FC<EmergencyButtonProps> = ({ onSOS, disable
           if (prev <= 1) {
             clearInterval(interval);
             setConfirming(false);
-            onSOS();
+            // Use setTimeout to avoid state update during render
+            setTimeout(() => onSOS(), 0);
             return 5;
           }
           return prev - 1;
