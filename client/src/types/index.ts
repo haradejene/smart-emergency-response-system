@@ -1,4 +1,4 @@
-//Core Types
+// ============ Core Types ============
 
 export interface SensorData {
   acceleration: {
@@ -15,7 +15,7 @@ export interface LocationData {
   accuracy: number;
 }
 
-//Alert Types
+// ============ Alert Types ============
 
 export type AlertSeverity = 'low' | 'medium' | 'high';
 export type AlertStatus = 'PENDING' | 'DISPATCHED' | 'RESOLVED' | 'FALSE_ALARM';
@@ -32,7 +32,7 @@ export interface Alert {
   type?: EmergencyType;
 }
 
-//Emergency Event Types
+// ============ Emergency Event Types ============
 
 export interface EmergencyEvent {
   id: string;
@@ -44,7 +44,7 @@ export interface EmergencyEvent {
   severity?: AlertSeverity;
 }
 
-//WebSocket Payload Types
+// ============ WebSocket Payload Types ============
 
 export interface SensorDataPayload {
   type: 'sensor_data';
@@ -86,7 +86,7 @@ export interface AlertPayload {
   status: AlertStatus;
 }
 
-//API Request/Response Types
+// ============ API Request/Response Types ============
 
 export interface SensorDataRequest {
   device_id: string;
@@ -113,38 +113,3 @@ export interface SensorDataResponse {
   incident: Incident | null;
   message?: string;
 }
-
-//Component Props Types
-
-export interface SensorMonitorProps {
-  onIncidentDetected?: (incident: Incident) => void;
-}
-
-export interface EmergencyButtonProps {
-  onSOS: () => void;
-  disabled?: boolean;
-}
-
-export interface LocationMapProps {
-  location: LocationData | null;
-  title?: string;
-}
-
-export interface AlertHistoryProps {
-  alerts: Alert[];
-  onAcknowledge?: (id: string) => void;
-}
-
-//Helper Functions
-
-export const isAlertSeverity = (value: string): value is AlertSeverity => {
-  return ['low', 'medium', 'high'].includes(value);
-};
-
-export const isAlertStatus = (value: string): value is AlertStatus => {
-  return ['PENDING', 'DISPATCHED', 'RESOLVED', 'FALSE_ALARM'].includes(value);
-};
-
-export const isEmergencyType = (value: string): value is EmergencyType => {
-  return ['accident', 'manual_sos', 'auto_detected'].includes(value);
-};
