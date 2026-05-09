@@ -3,17 +3,14 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 import './index.css'
 
-// Only register service worker in production or localhost HTTPS
+// Only register service worker in production
 const shouldRegisterSW = () => {
   if (!('serviceWorker' in navigator)) return false;
   
-  // In production, always register
+  // Only register in production environment
   if (import.meta.env.PROD) return true;
   
-  // In development, only register on localhost with HTTPS or localhost
-  const isLocalhost = window.location.hostname === 'localhost' || 
-                      window.location.hostname === '127.0.0.1';
-  return isLocalhost;
+  return false;
 };
 
 if (shouldRegisterSW()) {
