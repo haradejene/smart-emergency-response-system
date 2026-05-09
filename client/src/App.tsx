@@ -14,12 +14,13 @@ import { apiService } from './services/apiService';
 import { MockTransport } from './services/transport/mockTransport';
 import type { Alert, AlertSeverity, AlertStatus, EmergencyType, LocationData, Incident, SensorData } from './types';
 
-// Helper function to generate unique IDs
+// Generate truly unique IDs
 const generateUniqueId = (): string => {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return crypto.randomUUID();
-  }
-  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${performance.now()}`;
+  // Use multiple sources to ensure uniqueness
+  const timestamp = Date.now();
+  const random = Math.random().toString(36).substring(2, 15);
+  const microtime = performance.now();
+  return `${timestamp}-${random}-${microtime}`;
 };
 
 const HIGH_G_THRESHOLD = 16;
@@ -67,8 +68,11 @@ function App() {
 
   const addAlert = useCallback((alert: Alert) => {
     setAlerts((prev) => {
-      // Check for duplicate by ID
-      if (prev.some(a => a.id === alert.id)) return prev;
+      // Skip if alert with same ID already exists
+      if (prev.some(a => a.id === alert.id)) {
+        console.warn('Duplicate alert prevented:', alert.id);
+        return prev;
+      }
       const next = [alert, ...prev].slice(0, 100);
       localStorage.setItem(ALERT_HISTORY_KEY, JSON.stringify(next));
       return next;
@@ -238,7 +242,7 @@ function App() {
     );
     if (totalG < HIGH_G_THRESHOLD) return;
     const fakeIncident: Incident = {
-      id: `demo_incident_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+      id: generateUniqueId(), // Use unique ID here!
       device_id: 'demo_device',
       status: 'PENDING',
       severity: 'high',
@@ -261,7 +265,7 @@ function App() {
     const delay = Math.max(0, snapshot.endsAt - Date.now());
     const timer = window.setTimeout(() => {
       const newAlert: Alert = {
-        id: snapshot.incident.id,
+        id: generateUniqueId(), // Use unique ID here too!
         message: `🚨 ${snapshot.incident.severity.toUpperCase()} severity incident detected!`,
         severity: snapshot.incident.severity,
         location: {
@@ -330,7 +334,7 @@ function App() {
       
       if (sent) {
         const newAlert: Alert = {
-          id: generateUniqueId(),
+          id: generateUniqueId(), // Use unique ID!
           message: '🚨 SOS Emergency triggered!',
           severity: 'high',
           location: {
