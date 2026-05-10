@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import type { SensorData, Incident } from '../types';
 import { apiService } from '../services/apiService';
 
@@ -17,6 +17,7 @@ export const useAccelerometer = (options: UseAccelerometerOptions = {}) => {
   
   const [sensorData, setSensorData] = useState<SensorData | null>(null);
   const [permissionGranted, setPermissionGranted] = useState<boolean>(false);
+  const [permissionStatus, setPermissionStatus] = useState<'pending' | 'granted' | 'denied' | 'unsupported'>('pending');
   const [error, setError] = useState<string | null>(null);
   const [isListening, setIsListening] = useState<boolean>(false);
   const [isSending, setIsSending] = useState<boolean>(false);
@@ -30,6 +31,75 @@ export const useAccelerometer = (options: UseAccelerometerOptions = {}) => {
   // Save device ID
   useEffect(() => {
     localStorage.setItem('device_id', deviceId.current);
+  }, []);
+
+  // Function to request permission manually (for iOS)
+  const requestMotionPermission = useCallback(async (): Promise<boolean> => {
+    if (typeof (DeviceMotionEvent as any).requestPermission === 'function') {
+      try {
+        const response = await (DeviceMotionEvent as any).requestPermission();
+        if (response === 'granted') {
+          setPermissionGranted(true);
+          setPermissionStatus('granted');
+          setError(null);
+          return true;
+        } else {
+          setPermissionStatus('denied');
+          setError('Motion permission denied. Please enable in settings.');
+          return false;
+        }
+      } catch (err) {
+        console.error('Error requesting motion permission:', err);
+        setPermissionStatus('denied');
+        setError('Failed to request motion permission');
+        return false;
+      }
+    } else {
+      // Android/Desktop - permission is automatic
+      setPermissionGranted(true);
+      setPermissionStatus('granted');
+      return true;
+    }
+  }, []);
+
+  // Start listening to accelerometer
+  const startListening = useCallback(() => {
+    if (!enabled || !permissionGranted) return;
+
+    const handleMotion = (event: DeviceMotionEvent) => {
+      const acceleration = event.accelerationIncludingGravity;
+      if (acceleration) {
+        const data: SensorData = {
+          acceleration: {
+            x: acceleration.x || 0,
+            y: acceleration.y || 0,
+            z: acceleration.z || 0,
+          },
+          timestamp: Date.now(),
+        };
+        setSensorData(data);
+        
+        const now = Date.now();
+        if (now - lastSendTime.current >= sendInterval && lastLocationRef.current) {
+          lastSendTime.current = now;
+          sendToBackend(data.acceleration, lastLocationRef.current);
+        }
+      }
+    };
+
+    motionHandlerRef.current = handleMotion;
+    window.addEventListener('devicemotion', handleMotion);
+    setIsListening(true);
+    setError(null);
+  }, [enabled, permissionGranted, sendInterval]);
+
+  // Stop listening
+  const stopListening = useCallback(() => {
+    if (motionHandlerRef.current) {
+      window.removeEventListener('devicemotion', motionHandlerRef.current);
+      motionHandlerRef.current = null;
+    }
+    setIsListening(false);
   }, []);
 
   // Function to send data to backend
@@ -52,91 +122,39 @@ export const useAccelerometer = (options: UseAccelerometerOptions = {}) => {
     }
   };
 
-  // Start listening to accelerometer
+  // Check if motion sensor is supported
+  const isMotionSupported = useCallback((): boolean => {
+    return !!window.DeviceMotionEvent;
+  }, []);
+
+  // Auto-initialize on Android/Desktop
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) {
+      stopListening();
+      return;
+    }
 
     if (!window.DeviceMotionEvent) {
+      setPermissionStatus('unsupported');
       setError('DeviceMotion API not supported on this browser');
       return;
     }
 
-    const startListening = () => {
-      const handleMotion = (event: DeviceMotionEvent) => {
-        const acceleration = event.accelerationIncludingGravity;
-        if (acceleration) {
-          const data: SensorData = {
-            acceleration: {
-              x: acceleration.x || 0,
-              y: acceleration.y || 0,
-              z: acceleration.z || 0,
-            },
-            timestamp: Date.now(),
-          };
-          setSensorData(data);
-          
-          const now = Date.now();
-          if (now - lastSendTime.current >= sendInterval && lastLocationRef.current) {
-            lastSendTime.current = now;
-            sendToBackend(data.acceleration, lastLocationRef.current);
-          }
-        }
-      };
-
-      motionHandlerRef.current = handleMotion;
-      window.addEventListener('devicemotion', handleMotion);
-      setIsListening(true);
-      setError(null);
-    };
-
-    const requestPermission = async () => {
-      if (typeof (DeviceMotionEvent as any).requestPermission === 'function') {
-        // iOS requires user interaction
-        try {
-          const response = await (DeviceMotionEvent as any).requestPermission();
-          if (response === 'granted') {
-            setPermissionGranted(true);
-            startListening();
-          } else {
-            setError('Permission denied for motion sensors');
-          }
-        } catch (err) {
-          console.error('Error requesting motion permission:', err);
-          setError('Failed to request motion permission');
-        }
-      } else {
-        // Android and other browsers
-        setPermissionGranted(true);
-        startListening();
-      }
-    };
-
-    // For iOS, we need user gesture
-    if (typeof (DeviceMotionEvent as any).requestPermission === 'function') {
-      const handleUserGesture = () => {
-        requestPermission();
-        window.removeEventListener('click', handleUserGesture);
-        window.removeEventListener('touchstart', handleUserGesture);
-      };
-      window.addEventListener('click', handleUserGesture);
-      window.addEventListener('touchstart', handleUserGesture);
-      
-      return () => {
-        window.removeEventListener('click', handleUserGesture);
-        window.removeEventListener('touchstart', handleUserGesture);
-        if (motionHandlerRef.current) {
-          window.removeEventListener('devicemotion', motionHandlerRef.current);
-        }
-      };
+    // For Android/Desktop (no permission request needed)
+    if (typeof (DeviceMotionEvent as any).requestPermission !== 'function') {
+      setPermissionGranted(true);
+      setPermissionStatus('granted');
+      startListening();
     } else {
-      requestPermission();
-      return () => {
-        if (motionHandlerRef.current) {
-          window.removeEventListener('devicemotion', motionHandlerRef.current);
-        }
-      };
+      // For iOS - wait for user gesture
+      setPermissionStatus('pending');
+      setError('Tap the "Request Motion Permission" button to enable motion detection');
     }
-  }, [enabled, sendInterval, onIncidentDetected]);
+
+    return () => {
+      stopListening();
+    };
+  }, [enabled, startListening, stopListening]);
 
   const updateLocation = (latitude: number, longitude: number) => {
     lastLocationRef.current = { latitude, longitude };
@@ -145,9 +163,14 @@ export const useAccelerometer = (options: UseAccelerometerOptions = {}) => {
   return {
     sensorData,
     permissionGranted,
+    permissionStatus,
     error,
     isListening,
     isSending,
+    isMotionSupported: isMotionSupported(),
+    requestMotionPermission,
     updateLocation,
+    stopListening,
+    startListening,
   };
 };

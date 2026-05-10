@@ -16,7 +16,9 @@ import type { Alert, AlertSeverity, AlertStatus, EmergencyType, LocationData, In
 
 // Generate truly unique IDs
 const generateUniqueId = (): string => {
-  // Use multiple sources to ensure uniqueness
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
   const timestamp = Date.now();
   const random = Math.random().toString(36).substring(2, 15);
   const microtime = performance.now();
@@ -51,8 +53,18 @@ function App() {
   const mockTransport = useRef(new MockTransport());
   const [mockLocation, setMockLocation] = useState<LocationData | null>(null);
   const [mockSensorData, setMockSensorData] = useState<SensorData | null>(null);
+  const wsInitializedRef = useRef(false);
   
-  const { location, error: locationError, watching, permissionDenied } = useGeolocation({ 
+  const { 
+    location, 
+    error: locationError, 
+    watching, 
+    permissionDenied,
+    permissionStatus: locationPermStatus,
+    requestLocationPermission,
+    startWatching: startLocationWatching,
+    isSupported: isLocationSupported
+  } = useGeolocation({ 
     enabled: isMonitoring && !demoMode,
   });
 
@@ -68,7 +80,6 @@ function App() {
 
   const addAlert = useCallback((alert: Alert) => {
     setAlerts((prev) => {
-      // Skip if alert with same ID already exists
       if (prev.some(a => a.id === alert.id)) {
         console.warn('Duplicate alert prevented:', alert.id);
         return prev;
@@ -94,19 +105,25 @@ function App() {
     }, AUTO_DETECT_COUNTDOWN_MS + 1000);
   }, [pendingAutoIncident]);
   
-  const { 
-    sensorData: liveSensorData, 
-    permissionGranted: motionPermission, 
-    error: motionError, 
-    isListening,
-    updateLocation 
-  } = useAccelerometer({
+  const accelerometer = useAccelerometer({
     enabled: isMonitoring && !demoMode && watching,
     onIncidentDetected: handleIncidentDetected,
   });
+  
+  const { 
+    sensorData: liveSensorData, 
+    permissionGranted: motionPermission, 
+    permissionStatus: motionPermStatus,
+    error: motionError, 
+    isListening,
+    isMotionSupported,
+    requestMotionPermission,
+    updateLocation 
+  } = accelerometer;
+  
   const sensorData = demoMode ? mockSensorData : liveSensorData;
   
-  const WS_URL = import.meta.env.VITE_WS_URL || 'wss://smart-emergency-response-system-2-c6wy.onrender.com';
+  const WS_URL = import.meta.env.VITE_WS_URL || 'https://smart-emergency-response-system-2-c6wy.onrender.com';
   
   const handleAlert = useCallback((data: any) => {
     let alertLocation: LocationData;
@@ -149,12 +166,44 @@ function App() {
   
   const { isConnected, sendMessage } = useWebSocket({
     url: WS_URL,
-    autoConnect: isMonitoring && !demoMode,
+    autoConnect: isMonitoring && !demoMode && !wsInitializedRef.current,
     enabled: isMonitoring && !demoMode,
-    onConnect: () => console.log('WebSocket connected'),
-    onDisconnect: () => console.log('WebSocket disconnected'),
+    onConnect: () => {
+      console.log('WebSocket connected');
+      wsInitializedRef.current = true;
+    },
+    onDisconnect: () => {
+      console.log('WebSocket disconnected');
+      wsInitializedRef.current = false;
+    },
     onAlert: handleAlert,
   });
+
+  // Handle request motion permission
+  const handleRequestMotion = useCallback(async (): Promise<boolean> => {
+    const granted = await requestMotionPermission();
+    if (granted) {
+      setToast({ message: '✅ Motion sensor enabled! Shake your phone to test.', type: 'success' });
+    } else {
+      setToast({ message: '❌ Motion permission denied. Please check browser settings.', type: 'error' });
+    }
+    return granted;
+  }, [requestMotionPermission]);
+
+  // Handle request location permission
+  const handleRequestLocation = useCallback(async (): Promise<boolean> => {
+    const granted = await requestLocationPermission();
+    if (granted && startLocationWatching) {
+      startLocationWatching();
+      setToast({ message: '✅ Location enabled! Your position is being tracked.', type: 'success' });
+    }
+    return granted;
+  }, [requestLocationPermission, startLocationWatching]);
+
+  // Wrapper for SensorMonitor permission handler
+  const handleRequestMotionPermissionWrapper = useCallback(async () => {
+    await handleRequestMotion();
+  }, [handleRequestMotion]);
 
   useEffect(() => {
     if (!demoMode && location) {
@@ -242,7 +291,7 @@ function App() {
     );
     if (totalG < HIGH_G_THRESHOLD) return;
     const fakeIncident: Incident = {
-      id: generateUniqueId(), // Use unique ID here!
+      id: generateUniqueId(),
       device_id: 'demo_device',
       status: 'PENDING',
       severity: 'high',
@@ -265,7 +314,7 @@ function App() {
     const delay = Math.max(0, snapshot.endsAt - Date.now());
     const timer = window.setTimeout(() => {
       const newAlert: Alert = {
-        id: generateUniqueId(), // Use unique ID here too!
+        id: generateUniqueId(),
         message: `🚨 ${snapshot.incident.severity.toUpperCase()} severity incident detected!`,
         severity: snapshot.incident.severity,
         location: {
@@ -334,7 +383,7 @@ function App() {
       
       if (sent) {
         const newAlert: Alert = {
-          id: generateUniqueId(), // Use unique ID!
+          id: generateUniqueId(),
           message: '🚨 SOS Emergency triggered!',
           severity: 'high',
           location: {
@@ -348,12 +397,12 @@ function App() {
           status: 'PENDING',
         };
         addAlert(newAlert);
-        setToast({ message: 'Emergency alert sent successfully.', type: 'success' });
+        setToast({ message: '🚨 Emergency alert sent successfully!', type: 'success' });
       } else {
-        setToast({ message: 'Cannot send alert: server not connected.', type: 'error' });
+        setToast({ message: '❌ Cannot send alert: server not connected.', type: 'error' });
       }
     } else {
-      setToast({ message: 'Cannot send alert: location not available.', type: 'error' });
+      setToast({ message: '❌ Cannot send alert: location not available.', type: 'error' });
     }
   };
 
@@ -471,12 +520,13 @@ function App() {
               {!demoMode && (
                 <div className="mb-6">
                   <PermissionsGate
-                    motionSupported={!!window.DeviceMotionEvent}
+                    motionSupported={isMotionSupported}
                     motionGranted={motionPermission}
-                    locationSupported={!!navigator.geolocation}
+                    motionPermissionStatus={motionPermStatus}
+                    onRequestMotion={handleRequestMotion}
+                    locationSupported={isLocationSupported}
                     locationGranted={!!locationData}
-                    onRequestMotion={async () => true}
-                    onRequestLocation={async () => true}
+                    onRequestLocation={handleRequestLocation}
                   />
                 </div>
               )}
@@ -510,6 +560,7 @@ function App() {
               locationWatching={demoMode ? true : watching}
               permissionDenied={permissionDenied}
               onUpdateLocation={demoMode ? () => {} : updateLocation}
+              onRequestMotionPermission={!demoMode ? handleRequestMotionPermissionWrapper : undefined}
             />
             
             <EmergencyButton onSOS={handleSOS} disabled={!demoMode && !isConnected} />

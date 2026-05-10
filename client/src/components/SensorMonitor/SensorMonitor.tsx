@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { LocationData, SensorData } from '../../types';
 
 interface SensorMonitorProps {
@@ -11,6 +11,7 @@ interface SensorMonitorProps {
   locationWatching?: boolean;
   permissionDenied?: boolean;
   onUpdateLocation: (lat: number, lng: number) => void;
+  onRequestMotionPermission?: () => Promise<void>;
 }
 
 export const SensorMonitor: React.FC<SensorMonitorProps> = ({
@@ -23,7 +24,18 @@ export const SensorMonitor: React.FC<SensorMonitorProps> = ({
   locationWatching = false,
   permissionDenied = false,
   onUpdateLocation,
+  onRequestMotionPermission,
 }) => {
+  const [requestingMotion, setRequestingMotion] = useState(false);
+
+  const handleRequestMotion = async () => {
+    setRequestingMotion(true);
+    if (onRequestMotionPermission) {
+      await onRequestMotionPermission();
+    }
+    setRequestingMotion(false);
+  };
+
   return (
     <div className="p-4 m-4 bg-gray-50 dark:bg-gray-800 rounded-xl shadow-lg">
       <h3 className="text-lg font-bold mb-4 text-gray-800 dark:text-white flex items-center gap-2">
@@ -73,14 +85,30 @@ export const SensorMonitor: React.FC<SensorMonitorProps> = ({
             </div>
           </div>
         ) : (
-          <div className="text-center py-4 text-gray-400">
-            {motionActive ? 'Waiting for sensor data...' : 'Grant permission to access motion sensor'}
+          <div className="text-center py-4">
+            <p className="text-gray-400">Waiting for sensor data...</p>
+            {!motionActive && onRequestMotionPermission && (
+              <button
+                onClick={handleRequestMotion}
+                disabled={requestingMotion}
+                className="mt-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm transition"
+              >
+                {requestingMotion ? 'Requesting...' : '🔘 Enable Motion Sensor'}
+              </button>
+            )}
           </div>
         )}
         
         {motionError && (
           <div className="mt-3 text-red-500 text-xs bg-red-50 dark:bg-red-900/20 p-2 rounded">
             ⚠️ {motionError}
+          </div>
+        )}
+
+        {/* Debug info for motion sensor */}
+        {!sensorData && !motionError && (
+          <div className="mt-3 text-yellow-500 text-xs bg-yellow-50 dark:bg-yellow-900/20 p-2 rounded">
+            💡 Tip: On iPhone, go to Settings → Safari → Motion & Orientation Access → Enable
           </div>
         )}
       </div>
