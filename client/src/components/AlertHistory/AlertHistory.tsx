@@ -52,10 +52,17 @@ export const AlertHistory = ({ alerts, onAcknowledge }: AlertHistoryProps) => {
             {alert.location && (
               <div className="text-xs text-gray-500 dark:text-gray-400 mb-3 font-mono">
                 📍 {alert.location.latitude.toFixed(4)}°, {alert.location.longitude.toFixed(4)}°
+                {alert.location.accuracy && ` (±${alert.location.accuracy.toFixed(0)}m)`}
               </div>
             )}
             
-            {alert.status === 'PENDING' && onAcknowledge && !alert.acknowledged && (
+            {alert.status && (
+              <div className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                Status: {alert.status}
+              </div>
+            )}
+            
+            {!alert.acknowledged && onAcknowledge && (
               <button
                 onClick={() => onAcknowledge(alert.id)}
                 className="text-xs bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded transition"
@@ -64,9 +71,9 @@ export const AlertHistory = ({ alerts, onAcknowledge }: AlertHistoryProps) => {
               </button>
             )}
             
-            <span className="text-xs text-green-600 dark:text-green-400">
-              Status: {alert.status ?? 'PENDING'}{alert.acknowledged ? ' (acknowledged)' : ''}
-            </span>
+            {alert.acknowledged && (
+              <span className="text-xs text-green-600 dark:text-green-400">✓ Acknowledged</span>
+            )}
           </div>
         ))}
       </div>

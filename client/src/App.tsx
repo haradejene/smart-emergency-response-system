@@ -14,6 +14,15 @@ import { apiService } from './services/apiService';
 import { MockTransport } from './services/transport/mockTransport';
 import type { Alert, AlertSeverity, AlertStatus, EmergencyType, LocationData, Incident, SensorData } from './types';
 
+// Generate truly unique IDs
+const generateUniqueId = (): string => {
+  // Use multiple sources to ensure uniqueness
+  const timestamp = Date.now();
+  const random = Math.random().toString(36).substring(2, 15);
+  const microtime = performance.now();
+  return `${timestamp}-${random}-${microtime}`;
+};
+
 const HIGH_G_THRESHOLD = 16;
 const AUTO_DETECT_COUNTDOWN_MS = 10_000;
 const ALERT_HISTORY_KEY = 'sers-alert-history';
@@ -59,6 +68,11 @@ function App() {
 
   const addAlert = useCallback((alert: Alert) => {
     setAlerts((prev) => {
+      // Skip if alert with same ID already exists
+      if (prev.some(a => a.id === alert.id)) {
+        console.warn('Duplicate alert prevented:', alert.id);
+        return prev;
+      }
       const next = [alert, ...prev].slice(0, 100);
       localStorage.setItem(ALERT_HISTORY_KEY, JSON.stringify(next));
       return next;
@@ -74,7 +88,6 @@ function App() {
       incident,
     });
     window.setTimeout(() => {
-      // allow future incidents after this window
       if (lastPendingIncidentIdRef.current === incident.id) {
         lastPendingIncidentIdRef.current = null;
       }
@@ -115,7 +128,7 @@ function App() {
     }
     
     const newAlert: Alert = {
-      id: data.id || Date.now().toString(),
+      id: data.id || generateUniqueId(),
       message: data.message || 'Emergency detected!',
       severity: data.severity,
       location: alertLocation,
@@ -124,7 +137,7 @@ function App() {
       status: data.status,
       type: data.type,
     };
-    setAlerts(prev => [newAlert, ...prev]);
+    addAlert(newAlert);
     
     if ('Notification' in window && Notification.permission === 'granted') {
       new Notification('🚨 EMERGENCY ALERT!', {
@@ -132,7 +145,7 @@ function App() {
         icon: '/icon-192x192.png',
       });
     }
-  }, [locationData]);
+  }, [locationData, addAlert]);
   
   const { isConnected, sendMessage } = useWebSocket({
     url: WS_URL,
@@ -181,7 +194,7 @@ function App() {
     mockTransport.current.connect();
     mockTransport.current.onAlert((payload) => {
       const newAlert: Alert = {
-        id: payload.id,
+        id: payload.id || generateUniqueId(),
         message: payload.message,
         severity: payload.severity,
         location: {
@@ -229,7 +242,7 @@ function App() {
     );
     if (totalG < HIGH_G_THRESHOLD) return;
     const fakeIncident: Incident = {
-      id: `demo_incident_${Date.now()}`,
+      id: generateUniqueId(), // Use unique ID here!
       device_id: 'demo_device',
       status: 'PENDING',
       severity: 'high',
@@ -252,7 +265,7 @@ function App() {
     const delay = Math.max(0, snapshot.endsAt - Date.now());
     const timer = window.setTimeout(() => {
       const newAlert: Alert = {
-        id: snapshot.incident.id,
+        id: generateUniqueId(), // Use unique ID here too!
         message: `🚨 ${snapshot.incident.severity.toUpperCase()} severity incident detected!`,
         severity: snapshot.incident.severity,
         location: {
@@ -265,7 +278,7 @@ function App() {
         status: snapshot.incident.status,
         type: 'auto_detected',
       };
-      setAlerts((prev) => [newAlert, ...prev]);
+      addAlert(newAlert);
 
       if ('Notification' in window && Notification.permission === 'granted') {
         new Notification('🚨 EMERGENCY DETECTED!', {
@@ -274,7 +287,6 @@ function App() {
         });
       }
 
-      // Optionally notify backend/responders immediately if connected
       const emergencyData = {
         type: 'accident' as EmergencyType,
         message: newAlert.message,
@@ -322,7 +334,7 @@ function App() {
       
       if (sent) {
         const newAlert: Alert = {
-          id: Date.now().toString(),
+          id: generateUniqueId(), // Use unique ID!
           message: '🚨 SOS Emergency triggered!',
           severity: 'high',
           location: {
