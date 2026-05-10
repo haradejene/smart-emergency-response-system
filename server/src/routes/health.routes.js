@@ -1,6 +1,7 @@
 const express = require("express");
 const { Prisma } = require("@prisma/client");
 const { prisma } = require("../services/incident.service");
+const { getSocketStatus } = require("../websocket/socket");
 const logger = require("../utils/logger");
 
 const router = express.Router();
@@ -24,10 +25,13 @@ router.get("/health", async (_req, res) => {
     httpStatus = 503;
   }
 
+  const wsStatus = getSocketStatus();
+
   res.status(httpStatus).json({
     status: httpStatus === 200 ? "ok" : "degraded",
     uptime: process.uptime(),
     database: dbStatus,
+    websocket: wsStatus,
   });
 });
 

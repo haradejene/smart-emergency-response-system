@@ -4,28 +4,56 @@ const logger = require("../utils/logger");
 let io = null;
 
 function initializeSocket(httpServer, options = {}) {
+  // Handle CORS - credentials can't be true with wildcard origin
+  const isWildcard = options.corsOrigin === "*" || !options.corsOrigin;
+  const corsConfig = typeof options.corsOrigin === "function"
+    ? { origin: options.corsOrigin, methods: ["GET", "POST"], credentials: true }
+    : { origin: options.corsOrigin || "*", methods: ["GET", "POST"], credentials: false };
+
   io = new Server(httpServer, {
-    // CORS configuration - support both string origin and callback function
-    cors: typeof options.corsOrigin === "function"
-      ? { origin: options.corsOrigin, methods: ["GET", "POST"], credentials: true }
-      : { origin: options.corsOrigin || "*", methods: ["GET", "POST"], credentials: true },
-    // Render.com requires both transports
-    transports: ["websocket", "polling"],
+    cors: corsConfig,
+    // Render.com requires both transports (polling first, then upgrade to websocket)
+    transports: ["polling", "websocket"],
     // Enable compatibility with Socket.IO v3/v4 clients
     allowEIO3: true,
     // Allow upgrades from polling to websocket
     pingTimeout: 60000,
     pingInterval: 25000,
+    // Render uses a proxy - need to handle this
+    allowUpgrades: true,
+    upgradeTimeout: 10000,
   });
 
+  logger.info("Socket.IO initialized with CORS:", { origin: corsConfig.origin, transports: ["polling", "websocket"] });
+
+  // Track connection count
+  let connectionCount = 0;
+
   io.on("connection", (socket) => {
-    logger.info(`Socket connected: ${socket.id} from ${socket.handshake.address}`);
+    connectionCount++;
+    logger.info(`Socket connected: ${socket.id} from ${socket.handshake.address} (total: ${connectionCount})`);
+
+    // Send welcome message to confirm connection works
+    socket.emit("connected", { socketId: socket.id, timestamp: new Date().toISOString() });
+
     socket.on("disconnect", (reason) => {
-      logger.info(`Socket disconnected: ${socket.id}, reason: ${reason}`);
+      connectionCount--;
+      logger.info(`Socket disconnected: ${socket.id}, reason: ${reason} (total: ${connectionCount})`);
     });
+
     socket.on("error", (error) => {
       logger.error(`Socket error: ${socket.id}`, { error: error.message });
     });
+
+    // Handle ping/pong for health checks
+    socket.on("ping", () => {
+      socket.emit("pong", { time: Date.now() });
+    });
+  });
+
+  // Log engine events for debugging
+  io.engine.on("connection_error", (err) => {
+    logger.error("Socket.IO connection error:", { req: err.req, code: err.code, message: err.message });
   });
 
   return io;
@@ -46,8 +74,22 @@ async function closeSocket() {
   logger.info("Socket.IO server closed");
 }
 
+function getSocketStatus() {
+  if (!io) {
+    return { initialized: false, connections: 0 };
+  }
+  const sockets = io.sockets?.sockets;
+  const connectionCount = sockets ? sockets.size : 0;
+  return {
+    initialized: true,
+    connections: connectionCount,
+    engine: io.engine ? "running" : "not running",
+  };
+}
+
 module.exports = {
   initializeSocket,
   emitEmergencyAlert,
   closeSocket,
+  getSocketStatus,
 };
