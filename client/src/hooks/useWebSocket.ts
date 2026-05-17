@@ -28,6 +28,7 @@ export const useWebSocket = (options: WebSocketOptions) => {
   const socketRef = useRef<Socket | null>(null);
   const mountedRef = useRef<boolean>(true);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const handleConnected = useCallback(() => {
     if (!mountedRef.current) return;
@@ -35,12 +36,24 @@ export const useWebSocket = (options: WebSocketOptions) => {
     setIsConnected(true);
     setConnectionError(null);
     onConnect?.();
+
+    // Set up ping interval to keep connection alive
+    if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
+    pingIntervalRef.current = setInterval(() => {
+      if (socketRef.current?.connected) {
+        socketRef.current.emit('ping');
+      }
+    }, 25000);
   }, [onConnect, url]);
 
   const handleDisconnected = useCallback(() => {
     if (!mountedRef.current) return;
     console.log('❌ WebSocket disconnected');
     setIsConnected(false);
+    if (pingIntervalRef.current) {
+      clearInterval(pingIntervalRef.current);
+      pingIntervalRef.current = null;
+    }
     onDisconnect?.();
   }, [onDisconnect]);
 
@@ -66,18 +79,16 @@ export const useWebSocket = (options: WebSocketOptions) => {
     [onIncidentConfirmed],
   );
 
-  // Initialize socket once
   const initSocket = useCallback(() => {
     if (!enabled) return null;
-    if (socketRef.current && socketRef.current.connected) return socketRef.current;
+    if (socketRef.current?.connected) return socketRef.current;
     
     console.log('🔌 Initializing WebSocket connection to:', url);
     
-    // Use 'polling' first then upgrade to 'websocket' for better compatibility
     const socket = io(url, {
-      transports: ['polling', 'websocket'],
+      transports: ['websocket', 'polling'], // Fallback to polling
       reconnection: true,
-      reconnectionAttempts: 5,
+      reconnectionAttempts: 10,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
       timeout: 20000,
@@ -90,65 +101,64 @@ export const useWebSocket = (options: WebSocketOptions) => {
     socket.on('connect_error', handleConnectionError);
     socket.on('alert', handleAlert);
     socket.on('incident:confirmed', handleIncidentConfirmed);
+    socket.on('pong', () => {
+      console.log('🏓 Pong received');
+    });
 
     socketRef.current = socket;
     return socket;
   }, [enabled, url, handleConnected, handleDisconnected, handleConnectionError, handleAlert, handleIncidentConfirmed]);
 
-  // Connect/disconnect based on enabled prop
-  useEffect(() => {
-    if (!enabled) {
-      if (socketRef.current) {
-        console.log('Disconnecting WebSocket (disabled)');
-        socketRef.current.disconnect();
-        socketRef.current = null;
-      }
-      return;
-    }
-
-    // Clear any pending reconnect
+  const connect = useCallback(() => {
+    if (!enabled) return;
+    if (socketRef.current?.connected) return;
+    
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
-      reconnectTimeoutRef.current = null;
     }
 
-    // Small delay to prevent multiple simultaneous connections
     reconnectTimeoutRef.current = setTimeout(() => {
       const socket = initSocket();
-      if (socket && !socket.connected && autoConnect) {
+      if (socket && !socket.connected) {
         console.log('Connecting WebSocket...');
         socket.connect();
       }
     }, 100);
+  }, [enabled, initSocket]);
 
-    return () => {
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-    };
-  }, [enabled, autoConnect, initSocket]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-      if (socketRef.current) {
-        socketRef.current.off('connect', handleConnected);
-        socketRef.current.off('disconnect', handleDisconnected);
-        socketRef.current.off('connect_error', handleConnectionError);
-        socketRef.current.off('alert', handleAlert);
-        socketRef.current.off('incident:confirmed', handleIncidentConfirmed);
-        if (socketRef.current.connected) {
-          socketRef.current.disconnect();
-        }
-        socketRef.current = null;
-      }
-    };
+  const disconnect = useCallback(() => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    if (pingIntervalRef.current) {
+      clearInterval(pingIntervalRef.current);
+      pingIntervalRef.current = null;
+    }
+    if (socketRef.current) {
+      socketRef.current.off('connect', handleConnected);
+      socketRef.current.off('disconnect', handleDisconnected);
+      socketRef.current.off('connect_error', handleConnectionError);
+      socketRef.current.off('alert', handleAlert);
+      socketRef.current.off('incident:confirmed', handleIncidentConfirmed);
+      socketRef.current.disconnect();
+      socketRef.current = null;
+    }
+    setIsConnected(false);
   }, [handleAlert, handleConnected, handleConnectionError, handleDisconnected, handleIncidentConfirmed]);
+
+  useEffect(() => {
+    if (!enabled) {
+      disconnect();
+      return;
+    }
+    if (autoConnect) {
+      connect();
+    }
+    return () => {
+      disconnect();
+    };
+  }, [enabled, autoConnect, connect, disconnect]);
 
   const sendMessage = useCallback((event: string, data: EmergencyPayload | SensorDataPayload | AlertPayload) => {
     if (socketRef.current?.connected) {
@@ -181,5 +191,7 @@ export const useWebSocket = (options: WebSocketOptions) => {
     sendMessage,
     sendSensorData,
     sendEmergency,
+    connect,
+    disconnect,
   };
 };
