@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 interface EmergencyButtonProps {
   onSOS: () => void;
@@ -8,37 +8,56 @@ interface EmergencyButtonProps {
 export const EmergencyButton = ({ onSOS, disabled = false }: EmergencyButtonProps) => {
   const [confirming, setConfirming] = useState(false);
   const [countdown, setCountdown] = useState(5);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Clean up intervals on unmount
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-    
-    if (confirming && countdown > 0) {
-      interval = setInterval(() => {
-        setCountdown(prev => {
-          if (prev <= 1) {
-            clearInterval(interval);
-            setConfirming(false);
-            // Use setTimeout to avoid state update during render
-            setTimeout(() => onSOS(), 0);
-            return 5;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-    
     return () => {
-      if (interval) clearInterval(interval);
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
-  }, [confirming, countdown, onSOS]);
+  }, []);
+
+  const startCountdown = useCallback(() => {
+    setConfirming(true);
+    setCountdown(5);
+    
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    
+    intervalRef.current = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          // Clear interval
+          if (intervalRef.current) clearInterval(intervalRef.current);
+          intervalRef.current = null;
+          
+          // Trigger SOS after interval is cleared
+          setTimeout(() => {
+            setConfirming(false);
+            onSOS();
+          }, 50);
+          return 5;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, [onSOS]);
 
   const handlePress = () => {
     if (disabled) return;
-    setConfirming(true);
-    setCountdown(5);
+    startCountdown();
   };
 
   const handleCancel = () => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
     setConfirming(false);
     setCountdown(5);
   };
