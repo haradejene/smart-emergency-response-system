@@ -26,8 +26,8 @@ export const useWebSocket = (options: WebSocketOptions) => {
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
-  const isInitializedRef = useRef<boolean>(false);
   const mountedRef = useRef<boolean>(true);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const handleConnected = useCallback(() => {
     if (!mountedRef.current) return;
@@ -69,19 +69,20 @@ export const useWebSocket = (options: WebSocketOptions) => {
   // Initialize socket once
   const initSocket = useCallback(() => {
     if (!enabled) return null;
-    if (socketRef.current) return socketRef.current;
+    if (socketRef.current && socketRef.current.connected) return socketRef.current;
     
     console.log('🔌 Initializing WebSocket connection to:', url);
     
+    // Use 'polling' first then upgrade to 'websocket' for better compatibility
     const socket = io(url, {
-      transports: ['websocket'],
+      transports: ['polling', 'websocket'],
       reconnection: true,
-      reconnectionAttempts: Infinity,
+      reconnectionAttempts: 5,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
-      timeout: 10000,
+      timeout: 20000,
       withCredentials: false,
-      autoConnect: false,
+      forceNew: true,
     });
 
     socket.on('connect', handleConnected);
@@ -97,21 +98,33 @@ export const useWebSocket = (options: WebSocketOptions) => {
   // Connect/disconnect based on enabled prop
   useEffect(() => {
     if (!enabled) {
-      if (socketRef.current?.connected) {
+      if (socketRef.current) {
         console.log('Disconnecting WebSocket (disabled)');
         socketRef.current.disconnect();
+        socketRef.current = null;
       }
       return;
     }
 
-    const socket = initSocket();
-    if (socket && !socket.connected && autoConnect) {
-      console.log('Connecting WebSocket...');
-      socket.connect();
+    // Clear any pending reconnect
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
     }
 
+    // Small delay to prevent multiple simultaneous connections
+    reconnectTimeoutRef.current = setTimeout(() => {
+      const socket = initSocket();
+      if (socket && !socket.connected && autoConnect) {
+        console.log('Connecting WebSocket...');
+        socket.connect();
+      }
+    }, 100);
+
     return () => {
-      // Don't disconnect on unmount - keep connection
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
     };
   }, [enabled, autoConnect, initSocket]);
 
@@ -120,6 +133,9 @@ export const useWebSocket = (options: WebSocketOptions) => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
       if (socketRef.current) {
         socketRef.current.off('connect', handleConnected);
         socketRef.current.off('disconnect', handleDisconnected);
