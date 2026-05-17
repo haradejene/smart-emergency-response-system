@@ -126,7 +126,7 @@ Create a `.env` file:
 ```
 DATABASE_URL=your_database_url
 PORT=5000
-CORS_ORIGIN=http://localhost:3000
+CORS_ORIGIN=http://localhost:3000,http://localhost:5173,https://smart-emergency-response-system-sand.vercel.app
 ```
 
 ---

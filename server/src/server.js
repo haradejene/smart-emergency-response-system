@@ -4,25 +4,15 @@ const http = require("http");
 
 const app = require("./app");
 const logger = require("./utils/logger");
+const { getAllowedOrigins, createCorsOriginChecker } = require("./utils/cors");
 const { initializeSocket, closeSocket } = require("./websocket/socket");
 const { disconnectPrisma } = require("./services/incident.service");
 
 const port = Number(process.env.PORT) || 4000;
 const server = http.createServer(app);
 
-const rawOrigins = process.env.CORS_ORIGIN || "*";
-const allowedOrigins = rawOrigins.split(",").map((o) => o.trim());
-
-// For Render.com, allow all origins if wildcard is specified
-const corsOrigin = allowedOrigins.includes("*")
-  ? "*"
-  : (origin, callback) => {
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-      return callback(new Error(`Origin ${origin} is not allowed by CORS`));
-    };
+const allowedOrigins = getAllowedOrigins();
+const corsOrigin = createCorsOriginChecker(allowedOrigins);
 
 initializeSocket(server, {
   corsOrigin,
@@ -47,7 +37,10 @@ process.on("SIGTERM", () => shutdown("SIGTERM"));
 
 // ── Crash-safety handlers ───────────────────────────────────────
 process.on("uncaughtException", (error) => {
-  logger.error("Uncaught exception", { error: error.message, stack: error.stack });
+  logger.error("Uncaught exception", {
+    error: error.message,
+    stack: error.stack,
+  });
   process.exit(1);
 });
 

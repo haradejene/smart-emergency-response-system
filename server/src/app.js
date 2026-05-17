@@ -6,6 +6,7 @@ const swaggerUi = require("swagger-ui-express");
 const swaggerDocument = require("../swagger.json");
 
 const logger = require("./utils/logger");
+const { getAllowedOrigins, createCorsOriginChecker } = require("./utils/cors");
 const sensorRoutes = require("./routes/sensor.routes");
 const healthRoutes = require("./routes/health.routes");
 const { notFoundHandler, errorHandler } = require("./middleware/errorHandler");
@@ -19,19 +20,11 @@ app.set("json spaces", 2);
 app.use(helmet());
 
 // ── CORS — explicit allowlist from CORS_ORIGIN env var ──────────
-const rawOrigins = process.env.CORS_ORIGIN || "http://localhost:3000";
-const allowedOrigins = rawOrigins.split(",").map((o) => o.trim());
+const allowedOrigins = getAllowedOrigins();
 
 app.use(
   cors({
-    origin(origin, callback) {
-      // Allow requests with no origin (e.g. curl, server-to-server)
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes("*") || allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-      return callback(new Error(`Origin ${origin} is not allowed by CORS`));
-    },
+    origin: createCorsOriginChecker(allowedOrigins),
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
   }),
@@ -51,11 +44,15 @@ app.use(
 );
 
 // ── Swagger Documentation ───────────────────────────────────────
-app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
-  explorer: true,
-  customCss: ".swagger-ui .topbar { display: none }",
-  customSiteTitle: "Smart Emergency Response System API",
-}));
+app.use(
+  "/api-docs",
+  swaggerUi.serve,
+  swaggerUi.setup(swaggerDocument, {
+    explorer: true,
+    customCss: ".swagger-ui .topbar { display: none }",
+    customSiteTitle: "Smart Emergency Response System API",
+  }),
+);
 
 // ── Routes ──────────────────────────────────────────────────────
 app.use("/api", healthRoutes);
