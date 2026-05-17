@@ -5,10 +5,18 @@ let io = null;
 
 function initializeSocket(httpServer, options = {}) {
   // Handle CORS - credentials can't be true with wildcard origin
-  const isWildcard = options.corsOrigin === "*" || !options.corsOrigin;
-  const corsConfig = typeof options.corsOrigin === "function"
-    ? { origin: options.corsOrigin, methods: ["GET", "POST"], credentials: true }
-    : { origin: options.corsOrigin || "*", methods: ["GET", "POST"], credentials: false };
+  const corsConfig =
+    typeof options.corsOrigin === "function"
+      ? {
+          origin: options.corsOrigin,
+          methods: ["GET", "POST"],
+          credentials: true,
+        }
+      : {
+          origin: options.corsOrigin || "*",
+          methods: ["GET", "POST"],
+          credentials: false,
+        };
 
   io = new Server(httpServer, {
     cors: corsConfig,
@@ -24,36 +32,60 @@ function initializeSocket(httpServer, options = {}) {
     upgradeTimeout: 10000,
   });
 
-  logger.info("Socket.IO initialized with CORS:", { origin: corsConfig.origin, transports: ["polling", "websocket"] });
+  logger.info("Socket.IO initialized with CORS:", {
+    origin: corsConfig.origin,
+    transports: ["polling", "websocket"],
+  });
 
   // Track connection count
   let connectionCount = 0;
 
   io.on("connection", (socket) => {
     connectionCount++;
-    logger.info(`Socket connected: ${socket.id} from ${socket.handshake.address} (total: ${connectionCount})`);
+    logger.info(
+      `Socket connected: ${socket.id} from ${socket.handshake.address} (total: ${connectionCount})`,
+    );
 
     // Send welcome message to confirm connection works
-    socket.emit("connected", { socketId: socket.id, timestamp: new Date().toISOString() });
+    socket.emit("connected", {
+      socketId: socket.id,
+      timestamp: new Date().toISOString(),
+    });
 
     socket.on("disconnect", (reason) => {
       connectionCount--;
-      logger.info(`Socket disconnected: ${socket.id}, reason: ${reason} (total: ${connectionCount})`);
+      logger.info(
+        `Socket disconnected: ${socket.id}, reason: ${reason} (total: ${connectionCount})`,
+      );
     });
 
     socket.on("error", (error) => {
       logger.error(`Socket error: ${socket.id}`, { error: error.message });
     });
 
-    // Handle ping/pong for health checks
-    socket.on("ping", () => {
-      socket.emit("pong", { time: Date.now() });
+    // Handle ping/pong for health checks and optional client acknowledgements
+    socket.on("ping", (payload, callback) => {
+      const pongPayload = {
+        time: Date.now(),
+        socketId: socket.id,
+        payload: payload ?? null,
+      };
+
+      socket.emit("pong", pongPayload);
+
+      if (typeof callback === "function") {
+        callback(pongPayload);
+      }
     });
   });
 
   // Log engine events for debugging
   io.engine.on("connection_error", (err) => {
-    logger.error("Socket.IO connection error:", { req: err.req, code: err.code, message: err.message });
+    logger.error("Socket.IO connection error:", {
+      req: err.req,
+      code: err.code,
+      message: err.message,
+    });
   });
 
   return io;
